@@ -95,7 +95,7 @@ body {
   padding-block: 16px;
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
-  background: linear-gradient(rgba(29, 13, 24, 0) 0%, rgba(29, 13, 24, .55) 45%, rgba(29, 13, 24, .92) 100%);
+  background: linear-gradient(rgba(29, 13, 24, 0) 0%, rgba(29, 13, 24, 0) 38%, rgba(29, 13, 24, .7) 56%, rgba(29, 13, 24, .94) 100%);
   overflow-y: auto;
 }
 #screen.full { justify-content: flex-start; background: rgba(29, 13, 24, .93); }
@@ -219,7 +219,8 @@ const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.f
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 function seeded(seed) { let a = seed >>> 0; return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 
-const app = $('#app'), cv = $('#cv'), ctx = cv.getContext('2d');
+const app = $('#app'), cv = $('#cv');
+let ctx = cv.getContext('2d');
 const elHud = $('#hud'), elHudTitle = $('#hudTitle'), elHudBar = $('#hudBar'), elHudScore = $('#hudScore');
 const elScreen = $('#screen'), elControls = $('#controls'), elToast = $('#toast');
 const FONT = '"Figtree", system-ui, -apple-system, "Segoe UI", sans-serif';
@@ -280,55 +281,81 @@ function txt(s, x, y, size, color, align = 'center', weight = 700, font = FONT) 
 }
 function label(s, x, y, size = 12, fg = '#fff', bg = 'rgba(29,13,24,.78)') {
   ctx.font = `700 ${size}px ${FONT}`; const w = ctx.measureText(s).width + 14;
+  x = clamp(x, w / 2 + 4, W - w / 2 - 4);
   ctx.fillStyle = bg; rr(x - w / 2, y - size * .85, w, size * 1.7, size * .85); ctx.fill();
   txt(s, x, y + .5, size, fg);
 }
 function line(x1, y1, x2, y2) { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); }
+function oval(x, y, rx, ry) { ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, TAU); ctx.fill(); }
+function dot(x, y, r) { ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill(); }
+function poly(pts) { ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.closePath(); ctx.fill(); }
 
-/* Hoja de vid: cinco lóbulos en coordenadas polares */
+/* Capas estáticas: el paisaje y la bodega se dibujan una vez y se reutilizan en cada cuadro */
+const layers = new Map();
+function layer(key, fn) {
+  let c = layers.get(key);
+  if (!c) {
+    if (layers.size >= 3) layers.delete(layers.keys().next().value);
+    c = document.createElement('canvas'); c.width = cv.width; c.height = cv.height;
+    const prev = ctx; ctx = c.getContext('2d'); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    try { fn(); } finally { ctx = prev; }
+    layers.set(key, c);
+  }
+  ctx.drawImage(c, 0, 0, W, H);
+}
+
+/* Hoja de vid: cinco lóbulos con nervaduras */
 function leaf(x, y, r, rot, color) {
   ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
   ctx.beginPath();
-  for (let i = 0; i <= 40; i++) {
-    const a = i / 40 * TAU, q = r * (.58 + .42 * Math.pow(Math.abs(Math.cos(a * 2.5)), .6));
+  for (let i = 0; i <= 30; i++) {
+    const a = i / 30 * TAU, q = r * (.56 + .44 * Math.pow(Math.abs(Math.cos(a * 2.5)), .55));
     const px = Math.sin(a) * q, py = -Math.cos(a) * q;
     i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
   }
   ctx.closePath(); ctx.fillStyle = color; ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,.18)'; ctx.lineWidth = Math.max(.6, r * .07);
-  line(0, r * .7, 0, -r * .7);
+  if (r > 6) {
+    ctx.strokeStyle = 'rgba(20,45,15,.3)'; ctx.lineWidth = Math.max(.6, r * .06); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,215,.26)'; ctx.lineWidth = Math.max(.6, r * .07);
+    ctx.beginPath(); ctx.moveTo(0, r * .75); ctx.lineTo(0, -r * .7); ctx.moveTo(0, r * .25); ctx.lineTo(-r * .55, -r * .25); ctx.moveTo(0, r * .25); ctx.lineTo(r * .55, -r * .25); ctx.stroke();
+  }
   ctx.restore();
 }
 
-/* Racimo: triángulo invertido de bayas */
+/* Racimo: triángulo invertido de bayas con brillo */
 const BUNCH_ROWS = [3, 4, 3, 2, 1];
 function bunch(x, y, s, col, shine = 0, shrink = 0) {
   ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
-  ctx.strokeStyle = '#5c4a2a'; ctx.lineWidth = 2; line(0, -10, 0, -2);
-  const r = 5.2 * (1 - shrink * .28);
+  ctx.strokeStyle = '#5c4a2a'; ctx.lineWidth = 2; ctx.lineCap = 'round'; line(0, -11, 0, -2);
+  const r = 5.3 * (1 - shrink * .28), dark = rgb(mix(col, [0, 0, 0], .28)), base = rgb(col), lite = rgb(mix(col, [255, 255, 255], .22));
   BUNCH_ROWS.forEach((n, row) => {
     for (let i = 0; i < n; i++) {
       const bx = (i - (n - 1) / 2) * 9.4, by = row * 8.2;
-      ctx.fillStyle = rgb(mix(col, [0, 0, 0], ((i + row) % 2) * .14)); ctx.beginPath(); ctx.arc(bx, by, r, 0, TAU); ctx.fill();
-      if (shine > 0) { ctx.fillStyle = `rgba(255,255,255,${.5 * shine})`; ctx.beginPath(); ctx.arc(bx - 1.6, by - 1.8, 1.5, 0, TAU); ctx.fill(); }
+      ctx.fillStyle = dark; dot(bx, by + .6, r + .5);
+      ctx.fillStyle = (i + row) % 2 ? base : lite; dot(bx, by, r - .3);
+      if (shine > 0) { ctx.fillStyle = `rgba(255,255,255,${.55 * shine})`; dot(bx - 1.7, by - 1.9, 1.5); }
     }
   });
   ctx.restore();
 }
 
-/* Parra vista de frente */
-const VINE_LEAVES = [[-26, -50, 13, -.5], [-12, -58, 14, -.2], [4, -60, 14, .15], [20, -54, 13, .5], [-18, -42, 11, -.8], [14, -42, 11, .7], [-2, -48, 12, 0]];
+/* Parra vieja conducida en cabeza, con tronco retorcido */
+const VINE_LEAVES = [[-27, -50, 13, -.5], [-13, -59, 14, -.2], [4, -61, 14, .15], [21, -55, 13, .5], [-19, -42, 11, -.8], [15, -42, 11, .7], [-3, -49, 12, 0], [-33, -40, 9, -1], [30, -41, 9, 1]];
 function vine(x, y, s, t, o = {}) {
   const sw = Math.sin(t * 1.4 + (o.ph || 0)) * .07 * MS;
-  ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
-  ctx.fillStyle = 'rgba(40,25,10,.22)'; ctx.beginPath(); ctx.ellipse(0, 2, 30, 6, 0, 0, TAU); ctx.fill();
-  ctx.strokeStyle = '#6b4a2f'; ctx.lineCap = 'round'; ctx.lineWidth = 6;
-  ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(-4, -20, 0, -40); ctx.stroke();
-  ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(-28, -43); ctx.quadraticCurveTo(0, -36, 28, -43); ctx.stroke();
-  const c1 = o.leaf || '#4f9a3a', c2 = o.leaf2 || '#3f8530';
-  VINE_LEAVES.forEach((l, i) => leaf(l[0], l[1] + (o.droop ? 4 : 0), l[2], l[3] + sw * (i % 2 ? 1 : -1) + (o.droop ? .45 * Math.sign(l[0] || 1) : 0), i % 2 ? c1 : c2));
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s); ctx.lineCap = 'round';
+  ctx.fillStyle = 'rgba(40,25,10,.22)'; oval(0, 2, 32, 6);
+  if (o.stake) { ctx.fillStyle = '#9a7448'; ctx.fillRect(9, -72, 3.5, 74); ctx.fillStyle = '#7a5a36'; ctx.fillRect(11, -72, 1.5, 74); }
+  ctx.fillStyle = '#5a3d27'; ctx.beginPath(); ctx.moveTo(-7, 1); ctx.quadraticCurveTo(-10, -15, -4, -25); ctx.quadraticCurveTo(-8, -34, -3, -42); ctx.lineTo(4, -42);
+  ctx.quadraticCurveTo(8, -31, 4, -22); ctx.quadraticCurveTo(10, -10, 8, 1); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,.28)'; ctx.lineWidth = 1.2; line(-2, -3, -4, -17); line(3, -6, 4, -15); line(0, -24, -2, -37);
+  ctx.strokeStyle = '#5a3d27'; ctx.lineWidth = 4.5;
+  ctx.beginPath(); ctx.moveTo(-1, -40); ctx.quadraticCurveTo(-14, -37, -29, -45); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(1, -40); ctx.quadraticCurveTo(14, -37, 29, -45); ctx.stroke();
+  const cs = o.leaves || ['#4f9a3a', '#3f8530', '#63ad48'];
+  VINE_LEAVES.forEach((l, i) => leaf(l[0], l[1] + (o.droop ? 4 : 0), l[2], l[3] + sw * (i % 2 ? 1 : -1) + (o.droop ? .45 * Math.sign(l[0] || 1) : 0), cs[i % 3]));
   if (o.tip) {
-    [[-22, -66], [0, -74], [20, -68]].forEach((p, i) => {
+    [[-22, -67], [0, -75], [20, -69]].forEach((p, i) => {
       ctx.strokeStyle = '#5d8a3a'; ctx.lineWidth = 1.5; line(p[0] * .8, p[1] + 12, p[0] + sw * 18, p[1]);
       leaf(p[0] + sw * 18, p[1], 7.5, sw * 3 + (i - 1) * .4, o.tip);
       leaf(p[0] + 6 + sw * 18, p[1] + 6, 5.5, .7 + sw * 3, o.tip);
@@ -337,12 +364,105 @@ function vine(x, y, s, t, o = {}) {
   ctx.restore();
 }
 
-/* Paisaje: cordillera de los Andes, lomas e hileras del valle */
+/* Canasto de mimbre */
+function basket(x, y, s) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
+  ctx.fillStyle = 'rgba(40,25,10,.25)'; oval(0, 25, 44, 6);
+  ctx.strokeStyle = '#7a5526'; ctx.lineWidth = 4; ctx.beginPath(); ctx.ellipse(0, -16, 30, 22, 0, Math.PI, 0); ctx.stroke();
+  ctx.fillStyle = '#b3873f'; poly([[-44, -16], [44, -16], [34, 24], [-34, 24]]);
+  ctx.strokeStyle = 'rgba(90,55,20,.55)'; ctx.lineWidth = 1.6;
+  for (let i = 0; i < 4; i++) line(-42 + i * 2.6, -8 + i * 9, 42 - i * 2.6, -8 + i * 9);
+  for (let i = -3; i <= 3; i++) line(i * 12, -16, i * 9.6, 24);
+  ctx.fillStyle = '#7a5526'; rr(-47, -20, 94, 7, 3.5); ctx.fill();
+  ctx.restore();
+}
+
+/* Tinaja de greda */
+function tinaja(x, yb, s) {
+  ctx.save(); ctx.translate(x, yb); ctx.scale(s, s);
+  ctx.fillStyle = 'rgba(0,0,0,.3)'; oval(0, 1, 22, 5);
+  const g = ctx.createLinearGradient(-28, 0, 28, 0); g.addColorStop(0, '#7d4226'); g.addColorStop(.4, '#c97a4c'); g.addColorStop(1, '#7a3f24');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(-9, -62); ctx.lineTo(9, -62); ctx.bezierCurveTo(34, -52, 30, -14, 9, 0); ctx.lineTo(-9, 0); ctx.bezierCurveTo(-30, -14, -34, -52, -9, -62); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#9c5632'; rr(-12, -67, 24, 6, 3); ctx.fill();
+  ctx.restore();
+}
+
+/* Tomás, el viñatero: chupalla, camisa arremangada, pañuelo y barba */
+const SKIN = '#c58a5c', SKIN_D = '#a87248', SHIRT = '#efe3c8', SHIRT_D = '#d6c8a8', PANTS = '#465068', BOOT = '#3a2618';
+function ik(sx, sy, hx, hy, a, b) {
+  let dx = hx - sx, dy = hy - sy, d = Math.hypot(dx, dy); const md = a + b - .5;
+  if (d > md) { dx *= md / d; dy *= md / d; d = md; } if (d < 3) d = 3;
+  const ang = Math.atan2(dy, dx) + Math.acos(clamp((a * a + d * d - b * b) / (2 * a * d), -1, 1));
+  return [sx + Math.cos(ang) * a, sy + Math.sin(ang) * a, sx + dx, sy + dy];
+}
+function farmer(x, y, s, o = {}) {
+  const f = o.face || 1, mv = !!o.moving, ph = o.ph || 0, t = o.t || 0;
+  const bob = mv ? Math.abs(Math.sin(ph)) * 1.6 : Math.sin(t * 2.2) * .6 * MS, sw = mv ? Math.sin(ph) : 0;
+  const hipY = -44 - bob, shY = -75 - bob, hy = shY - 13;
+  ctx.save(); ctx.translate(x, y); ctx.scale(s * f, s); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  if (!o.noShadow) { ctx.fillStyle = 'rgba(30,18,8,.25)'; oval(0, 1, 17, 4.5); }
+  const arm = (sx, sy, h, back) => {
+    const [ex, ey, hx, hy2] = ik(sx, sy, h[0], h[1], 15, 15);
+    ctx.strokeStyle = back ? SHIRT_D : SHIRT; ctx.lineWidth = 7; line(sx, sy, ex, ey);
+    ctx.strokeStyle = back ? SKIN_D : SKIN; ctx.lineWidth = 5; line(ex, ey, hx, hy2);
+    return [hx, hy2];
+  };
+  // brazo de atrás
+  const b = arm(-5, shY, o.hand2 || [-7 - sw * 7, -47 - bob], true); ctx.fillStyle = SKIN_D; dot(b[0], b[1], 3.2);
+  // piernas y botas
+  [[-4, 1], [4, -1]].forEach(([hx, k]) => {
+    const fx = hx + sw * 9 * k, fy = -Math.max(0, sw * k) * 3;
+    ctx.strokeStyle = PANTS; ctx.lineWidth = 8.5; line(hx, hipY, fx, fy - 6);
+    ctx.fillStyle = BOOT; oval(fx + 2.5, fy - 3, 7, 3.8);
+  });
+  // torso
+  ctx.fillStyle = SHIRT; rr(-10.5, shY - 4, 21, 38, 7); ctx.fill();
+  if (o.apron) { ctx.fillStyle = '#6e4a2c'; rr(-9.5, shY + 8, 19, 30, 3); ctx.fill(); ctx.strokeStyle = '#6e4a2c'; ctx.lineWidth = 2; line(-6, shY + 8, -4, shY - 3); line(6, shY + 8, 5, shY - 3); }
+  else { ctx.strokeStyle = '#7a4a2a'; ctx.lineWidth = 2.2; line(-5.5, shY - 3, -5, hipY); line(5.5, shY - 3, 5, hipY); }
+  ctx.fillStyle = BOOT; ctx.fillRect(-10.5, hipY - 3, 21, 4);
+  ctx.fillStyle = '#cf2f4a'; poly([[-6, shY - 4], [8, shY - 4], [3, shY + 4]]);
+  // cabeza
+  ctx.fillStyle = SKIN_D; dot(-4, hy + .5, 2.4);
+  ctx.fillStyle = SKIN; dot(1, hy, 9.2); dot(10, hy + 1, 2);
+  ctx.fillStyle = '#3a281c'; ctx.beginPath(); ctx.arc(1, hy, 9.5, .1 * Math.PI, .96 * Math.PI); ctx.quadraticCurveTo(0, hy + 3.5, 1 + 9.5 * Math.cos(.1 * Math.PI), hy + 9.5 * Math.sin(.1 * Math.PI)); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#3a281c'; ctx.lineWidth = 1.6; line(5.5, hy + 3.4, 9.5, hy + 3.8);
+  ctx.fillStyle = '#2a1a12'; dot(5.2, hy - 1.4, 1.1);
+  // chupalla
+  ctx.fillStyle = '#e3c672'; oval(1.5, hy - 6.5, 18, 4.4); ctx.strokeStyle = '#b8983f'; ctx.lineWidth = .9; ctx.beginPath(); ctx.ellipse(1.5, hy - 6.5, 18, 4.4, 0, 0, TAU); ctx.stroke();
+  ctx.fillStyle = '#eedd9a'; rr(-6.5, hy - 16, 15, 10, 2.5); ctx.fill();
+  ctx.fillStyle = '#4a2d1a'; ctx.fillRect(-6.5, hy - 9.4, 15, 2.8);
+  // brazo de adelante y herramienta
+  const h = arm(4.5, shY, o.hand || [7 + sw * 7, -47 - bob], false), hx = h[0], hy2 = h[1], tl = o.tool;
+  if (tl === 'lupa') { ctx.strokeStyle = '#4a2d1a'; ctx.lineWidth = 2.6; line(hx, hy2, hx + 5, hy2 - 7); ctx.fillStyle = 'rgba(205,238,255,.4)'; dot(hx + 9.5, hy2 - 13.5, 6.5); ctx.strokeStyle = '#d4b04a'; ctx.lineWidth = 2.2; ctx.beginPath(); ctx.arc(hx + 9.5, hy2 - 13.5, 6.5, 0, TAU); ctx.stroke(); }
+  else if (tl === 'azadon') { const A = o.toolA || 0, dx = Math.cos(A), dy = Math.sin(A); ctx.strokeStyle = '#9a7448'; ctx.lineWidth = 2.8; line(hx - dx * 12, hy2 - dy * 12, hx + dx * 26, hy2 + dy * 26); ctx.strokeStyle = '#8d9399'; ctx.lineWidth = 4.5; line(hx + dx * 26, hy2 + dy * 26, hx + dx * 26 - dy * 9, hy2 + dy * 26 + dx * 9); }
+  else if (tl === 'tijera') { ctx.strokeStyle = '#cf2f4a'; ctx.lineWidth = 3; line(hx - 3, hy2 + 3, hx + 2, hy2 - 1); ctx.strokeStyle = '#c8ced4'; ctx.lineWidth = 2; const op = o.toolA || 0; line(hx + 2, hy2 - 1, hx + 10, hy2 - 7 - op * 3); line(hx + 2, hy2 - 1, hx + 11, hy2 - 3 + op * 3); }
+  else if (tl === 'vara' && o.tip) { ctx.strokeStyle = '#cdb86a'; ctx.lineWidth = 2.6; line(hx - 4, hy2 + 4, o.tip[0], o.tip[1]); }
+  else if (tl === 'pison') { ctx.strokeStyle = '#9a7448'; ctx.lineWidth = 3.6; line(hx, hy2 - 16, hx, o.tipY); ctx.fillStyle = '#6f4c30'; ctx.fillRect(hx - 9, o.tipY, 18, 5); }
+  else if (tl === 'balde') { ctx.save(); ctx.translate(hx, hy2); ctx.rotate(o.toolA || 0); ctx.strokeStyle = '#6d737a'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(0, 4, 7, Math.PI, 0); ctx.stroke(); ctx.fillStyle = '#9aa3aa'; poly([[-8, 4], [8, 4], [6, 17], [-6, 17]]); ctx.fillStyle = '#6cc4f5'; ctx.fillRect(-7, 4, 14, 2.5); ctx.restore(); }
+  else if (tl === 'copa') { ctx.strokeStyle = '#eef3f6'; ctx.lineWidth = 1.4; line(hx, hy2 + 1, hx, hy2 - 8); line(hx - 3.5, hy2 + 1.5, hx + 3.5, hy2 + 1.5); ctx.fillStyle = '#8a1a3a'; ctx.beginPath(); ctx.arc(hx, hy2 - 12, 5, 0, Math.PI); ctx.fill(); ctx.beginPath(); ctx.arc(hx, hy2 - 12, 5.4, -.15, Math.PI + .15); ctx.stroke(); }
+  ctx.fillStyle = SKIN; dot(hx, hy2, 3.3);
+  ctx.restore();
+}
+const toLocal = (px, py, s, face, wx, wy) => [(wx - px) / (s * face), (wy - py) / s];
+
+/* Trabajador: Tomás camina hasta cada tarea y la ejecuta al llegar */
+function makeWorker(x, y) { return { x, y, face: 1, ph: 0, q: [], cur: null, act: 0, actT: 1, moving: false }; }
+function workerUpdate(w, dt, speed, actTime) {
+  if (w.act > 0) { w.act -= dt; if (w.act <= 0 && w.cur) { const c = w.cur; w.cur = null; c.done(); } return; }
+  if (!w.cur && w.q.length) w.cur = w.q.shift();
+  if (!w.cur) { w.moving = false; return; }
+  const dx = w.cur.x - w.x, dy = w.cur.y - w.y, d = Math.hypot(dx, dy), st = speed * dt;
+  if (d <= st) { w.x = w.cur.x; w.y = w.cur.y; w.face = w.cur.face || w.face; w.act = w.actT = actTime; w.moving = false; }
+  else { w.x += dx / d * st; w.y += dy / d * st; if (Math.abs(dx) > 3) w.face = Math.sign(dx); w.ph += dt * 15; w.moving = true; }
+}
+const acting = w => w.act > 0 && w.cur ? 1 - w.act / w.actT : -1;   // avance de la acción, de 0 a 1
+
+/* Paisaje del valle: Andes, lomas con álamos, casa de adobe e hileras con flores */
 const MOODS = {
-  day:    { sky: ['#4f9fdc', '#b9e0f4', '#e8f3df'], sun: [.78, .42, '#fff3c4'], far: '#8496b8', near: '#5f7397', hill: '#6f9a55', earth: '#b88a5c', row: '#4f8f3a', rowD: '#3d7a2e' },
-  dawn:   { sky: ['#78b6e2', '#f6d6bc', '#fbe9cf'], sun: [.2, .62, '#ffe2a8'], far: '#9aa0c0', near: '#6e7aa0', hill: '#7a9c5c', earth: '#bd9060', row: '#5a9640', rowD: '#447f31' },
-  sunset: { sky: ['#2c2a66', '#b8527a', '#f6a35f'], sun: [.5, .86, '#ffd27a'], far: '#6b5a8c', near: '#473e6e', hill: '#4b5e3f', earth: '#8a5f45', row: '#3f6e33', rowD: '#2f5827' },
-  autumn: { sky: ['#6aa6d6', '#e6d2b2', '#f4dfb9'], sun: [.7, .5, '#ffe9b0'], far: '#8a93b5', near: '#667296', hill: '#8f9550', earth: '#b5855a', row: '#7d9440', rowD: '#647a30' }
+  day:    { sky: ['#3f93d8', '#a9d8f2', '#e9f3dc'], sun: [.8, .4, '#fff6cf'], far: '#8a9bbd', near: '#637a9c', shade: 'rgba(38,52,96,.3)', snow: '#fbfdff', hill2: '#8fae63', hill: '#6d9a4c', tree: '#3f6f35', earth2: '#d2a877', earth: '#a8794d', rows: ['#3c7a2c', '#55983a', '#7cb850'] },
+  dawn:   { sky: ['#6fb0e0', '#f4cfb4', '#fdebd0'], sun: [.2, .66, '#ffe3a6'], far: '#9c9fc2', near: '#70799f', shade: 'rgba(60,50,100,.28)', snow: '#fff3ea', hill2: '#9db06a', hill: '#789c55', tree: '#476f38', earth2: '#d9b081', earth: '#b08255', rows: ['#44802f', '#5d9c3e', '#86bf58'] },
+  sunset: { sky: ['#27255f', '#a94c7c', '#f7a660'], sun: [.5, .9, '#ffd98a'], far: '#70598c', near: '#4a3f70', shade: 'rgba(25,15,60,.35)', snow: '#f6cfc4', hill2: '#5d6a48', hill: '#46583a', tree: '#2c4129', earth2: '#a8704e', earth: '#6f4a38', rows: ['#2a5226', '#3b6a31', '#5a8a42'] },
+  autumn: { sky: ['#5f9fd2', '#e4d0b0', '#f6e2bd'], sun: [.72, .5, '#ffecb8'], far: '#8d95b6', near: '#687497', shade: 'rgba(45,50,95,.3)', snow: '#fbfdff', hill2: '#b3a45c', hill: '#8f944c', tree: '#c79a2e', earth2: '#d0a573', earth: '#a5774c', rows: ['#6a7a2e', '#8a9a3c', '#b5a848'] }
 };
 function makeRidge(seed, n, lo, hi) { const r = seeded(seed), a = []; for (let i = 0; i <= n; i++) { const k = i % 4, base = k === 2 ? hi : k === 0 ? lo : (lo + hi) / 2; a.push(base * (.82 + r() * .36)); } return a; }
 const RIDGE_A = makeRidge(1994, 16, .36, .8), RIDGE_B = makeRidge(1998, 12, .13, .34);
@@ -351,87 +471,164 @@ function ridgePath(arr, y0, hz) {
   arr.forEach((v, i) => ctx.lineTo(-10 + (W + 20) * i / (arr.length - 1), y0 - hz * v));
   ctx.lineTo(W + 10, y0 + 2); ctx.closePath();
 }
-function backdrop(t, mood = 'day', hf = .3, soft = 0) {
-  const m = MOODS[mood], y0 = H * hf, mh = Math.min(y0, 230);
-  const g = ctx.createLinearGradient(0, 0, 0, y0 + 20);
+function ridge(arr, y0, mh, col, shade, snow) {
+  const n = arr.length - 1, X = i => -10 + (W + 20) * i / n, Y = i => y0 - mh * arr[i], dx = X(1) - X(0);
+  ctx.fillStyle = col; ridgePath(arr, y0, mh); ctx.fill();
+  ctx.save(); ridgePath(arr, y0, mh); ctx.clip();
+  if (snow) {
+    ctx.fillStyle = snow; ctx.beginPath(); ctx.moveTo(-10, 0); const sl = y0 - mh * .6;
+    for (let i = 0; i <= 26; i++) ctx.lineTo(-10 + (W + 20) * i / 26, sl + (i % 2 ? mh * .07 : 0) + Math.sin(i * 1.7) * mh * .025);
+    ctx.lineTo(W + 10, 0); ctx.closePath(); ctx.fill();
+  }
+  ctx.fillStyle = shade;   // cara en sombra de cada cumbre
+  for (let i = 2; i < n; i += 4) {
+    const j = Math.min(n, i + 2);
+    poly([[X(i), Y(i)], [X(i) + dx * .18, Y(i) + mh * .16], [X(i) - dx * .06, Y(i) + mh * .3], [X(i) + dx * .4, y0 + 2], [X(j), y0 + 2], [X(j), Y(j)], [X(i + 1), Y(i + 1)]]);
+  }
+  ctx.restore();
+}
+function house(x, yb, s, lit) {
+  ctx.save(); ctx.translate(x, yb); ctx.scale(s, s);
+  ctx.fillStyle = '#4a3020'; ctx.fillRect(-47, -12, 3.5, 12);
+  ctx.fillStyle = lit ? '#24402a' : '#2f5a2c'; dot(-45, -24, 13); dot(-54, -16, 10); dot(-36, -16, 10);
+  ctx.fillStyle = lit ? '#c9a888' : '#ead4aa'; ctx.fillRect(-30, -20, 60, 20);
+  ctx.fillStyle = 'rgba(120,80,40,.28)'; ctx.fillRect(-30, -4, 60, 4);
+  ctx.fillStyle = 'rgba(60,35,20,.38)'; ctx.fillRect(-30, -20, 60, 5);
+  ctx.fillStyle = lit ? '#8a3f2a' : '#b4552f'; poly([[-37, -19], [-24, -33], [24, -33], [37, -19]]);
+  ctx.strokeStyle = 'rgba(70,25,12,.4)'; ctx.lineWidth = 1; for (let i = 1; i < 10; i++) line(-37 + i * 7.4, -19, -24 + i * 4.8, -33);
+  ctx.fillStyle = '#5a3620'; ctx.fillRect(-5, -14, 9, 14);
+  ctx.fillStyle = lit ? '#ffd27a' : '#6a8aa0'; ctx.fillRect(-22, -13, 8, 7); ctx.fillRect(14, -13, 8, 7);
+  ctx.fillStyle = '#6b4526'; [-30, -11, 9, 28].forEach(px => ctx.fillRect(px, -20, 2, 20));
+  ctx.restore();
+}
+function scenery(mood, hf, soft, withHouse) {
+  const m = MOODS[mood], y0 = H * hf, mh = Math.min(y0 * .95, 230), R = seeded(31);
+  let g = ctx.createLinearGradient(0, 0, 0, y0 + 20);
   g.addColorStop(0, m.sky[0]); g.addColorStop(.65, m.sky[1]); g.addColorStop(1, m.sky[2]);
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, y0 + 20);
-  // sol
   const sx = W * m.sun[0], sy = y0 * m.sun[1];
-  const sg = ctx.createRadialGradient(sx, sy, 4, sx, sy, 90);
-  sg.addColorStop(0, m.sun[2]); sg.addColorStop(.18, m.sun[2]); sg.addColorStop(.2, 'rgba(255,240,200,.35)'); sg.addColorStop(1, 'rgba(255,240,200,0)');
-  ctx.fillStyle = sg; ctx.fillRect(sx - 90, sy - 90, 180, 180);
-  // nubes
-  ctx.fillStyle = mood === 'sunset' ? 'rgba(255,200,170,.5)' : 'rgba(255,255,255,.78)';
-  for (let i = 0; i < 4; i++) {
-    const cx = ((i * 157 + t * (5 + i * 2.5) * MS) % (W + 180)) - 90, cy = y0 * (.14 + i * .12), k = .7 + (i % 3) * .25;
+  g = ctx.createRadialGradient(sx, sy, 4, sx, sy, 110);
+  g.addColorStop(0, m.sun[2]); g.addColorStop(.16, m.sun[2]); g.addColorStop(.18, 'rgba(255,240,200,.4)'); g.addColorStop(1, 'rgba(255,240,200,0)');
+  ctx.fillStyle = g; ctx.fillRect(sx - 110, sy - 110, 220, 220);
+  ridge(RIDGE_A, y0, mh, m.far, m.shade, m.snow);
+  g = ctx.createLinearGradient(0, y0 - mh * .55, 0, y0); g.addColorStop(0, 'rgba(255,240,225,0)'); g.addColorStop(1, 'rgba(255,240,225,.42)');
+  ctx.fillStyle = g; ctx.fillRect(0, y0 - mh * .55, W, mh * .55);
+  ridge(RIDGE_B, y0, mh, m.near, m.shade, null);
+  g = ctx.createLinearGradient(0, y0 - mh * .25, 0, y0); g.addColorStop(0, 'rgba(255,240,225,0)'); g.addColorStop(1, 'rgba(255,240,225,.3)');
+  ctx.fillStyle = g; ctx.fillRect(0, y0 - mh * .25, W, mh * .25);
+  // lomas lejanas con álamos
+  const h2 = x => y0 - 13 - Math.sin(x * .013 + 2) * 8 - Math.sin(x * .041) * 3;
+  ctx.fillStyle = m.hill2; ctx.beginPath(); ctx.moveTo(0, y0 + 4); for (let x = 0; x <= W + 8; x += 8) ctx.lineTo(x, h2(x)); ctx.lineTo(W, y0 + 4); ctx.closePath(); ctx.fill();
+  for (let i = 0; i < 14; i++) {
+    const x = W * (.02 + .072 * i) + R() * 9, hh = 14 + R() * 10;
+    if (withHouse && Math.abs(x - W * .74) < 52) continue;
+    ctx.fillStyle = m.tree; oval(x, h2(x) - hh * .45, 3.3, hh * .55);
+    ctx.fillStyle = 'rgba(255,255,220,.14)'; oval(x - 1, h2(x) - hh * .5, 1.4, hh * .42);
+  }
+  const h1 = x => y0 - 4 - Math.sin(x * .021 + 1) * 4 - Math.sin(x * .05) * 2;
+  ctx.fillStyle = m.hill; ctx.beginPath(); ctx.moveTo(0, y0 + 4); for (let x = 0; x <= W + 8; x += 8) ctx.lineTo(x, h1(x)); ctx.lineTo(W, y0 + 4); ctx.closePath(); ctx.fill();
+  if (withHouse) house(W * .74, y0 + 3, Math.min(1.25, W / 330), mood === 'sunset');
+  // suelo
+  g = ctx.createLinearGradient(0, y0, 0, H); g.addColorStop(0, m.earth2); g.addColorStop(1, m.earth);
+  ctx.fillStyle = g; ctx.fillRect(0, y0, W, H - y0);
+  // flores y pasto entre hileras (cubierta vegetal)
+  const vx = W / 2, FL = ['#f2c230', '#f08a24', '#fff6e0', '#c9a0e0', '#f2c230'];
+  const lane = (k, e) => lerp(vx + k * W * .034, vx + k * W * .27, e);
+  for (let i = 0; i < 230; i++) {
+    const k = Math.floor(R() * 12) - 6 + .5, e = Math.pow(R(), 1.3), x = lane(k, e) + (R() - .5) * W * .09 * e, y = y0 + 6 + (H - y0) * e, sz = lerp(.7, 3.2, e);
+    if (i % 3) { ctx.strokeStyle = m.rows[i % 2 + 1]; ctx.lineWidth = Math.max(.6, sz * .5); line(x, y, x - sz, y - sz * 2.4); line(x, y, x + sz, y - sz * 2.2); }
+    else { ctx.fillStyle = FL[i % 5]; dot(x, y - sz, sz); }
+  }
+  // hileras de parras: follaje en perspectiva y rodrigones
+  for (let k = -6; k <= 6; k++) {
+    for (let j = 0; j <= 26; j++) {
+      const e = Math.pow(j / 26, 1.7), x = lane(k, e), y = y0 + 3 + (H - y0) * e, r = lerp(2.4, W * .062, e);
+      if (j % 5 === 2) { ctx.fillStyle = '#8a6a44'; ctx.fillRect(x - r * .06, y - r * 1.5, Math.max(1, r * .12), r * 1.6); }
+      ctx.fillStyle = 'rgba(40,25,10,.18)'; oval(x, y + r * .35, r * 1.05, r * .3);
+      ctx.fillStyle = m.rows[0]; dot(x - r * .35, y - r * .2, r * .78);
+      ctx.fillStyle = m.rows[1]; dot(x + r * .32, y - r * .42, r * .74);
+      ctx.fillStyle = m.rows[2]; dot(x - r * .08, y - r * .72, r * .5);
+    }
+  }
+  g = ctx.createLinearGradient(0, y0, 0, y0 + 60); g.addColorStop(0, 'rgba(255,245,225,.32)'); g.addColorStop(1, 'rgba(255,245,225,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, y0, W, 60);
+  if (soft) {   // primer plano despejado para que se lea la acción
+    g = ctx.createLinearGradient(0, y0 + 14, 0, y0 + 120); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, m.earth);
+    ctx.globalAlpha = soft; ctx.fillStyle = g; ctx.fillRect(0, y0 + 14, W, 106); ctx.fillStyle = m.earth; ctx.fillRect(0, y0 + 120, W, H); ctx.globalAlpha = 1;
+    for (let i = 0; i < 70; i++) { const x = R() * W, y = y0 + 60 + R() * (H - y0 - 60), sz = 1.6 + R() * 2; if (i % 4) { ctx.strokeStyle = 'rgba(70,120,50,.55)'; ctx.lineWidth = 1.2; line(x, y, x - sz, y - sz * 2.4); line(x, y, x + sz, y - sz * 2.2); } else { ctx.fillStyle = FL[i % 5]; dot(x, y - sz, sz * .8); } }
+  }
+}
+function backdrop(t, mood = 'day', hf = .3, soft = 0, withHouse = false) {
+  layer(`s|${mood}|${hf}|${soft}|${withHouse}`, () => scenery(mood, hf, soft, withHouse));
+  const y0 = H * hf, mh = Math.min(y0 * .95, 230);
+  for (let i = 0; i < 4; i++) {   // nubes
+    const cx = ((i * 157 + t * (5 + i * 2.5) * MS) % (W + 200)) - 100, cy = y0 * (.12 + i * .11), k = .7 + (i % 3) * .25;
+    ctx.fillStyle = mood === 'sunset' ? 'rgba(120,70,110,.35)' : 'rgba(150,170,200,.35)'; oval(cx, cy + 4 * k, 36 * k, 8 * k);
+    ctx.fillStyle = mood === 'sunset' ? 'rgba(255,205,175,.62)' : 'rgba(255,255,255,.86)';
     ctx.beginPath(); ctx.ellipse(cx, cy, 34 * k, 9 * k, 0, 0, TAU); ctx.ellipse(cx + 20 * k, cy - 6 * k, 22 * k, 10 * k, 0, 0, TAU); ctx.ellipse(cx - 20 * k, cy - 3 * k, 18 * k, 8 * k, 0, 0, TAU); ctx.fill();
   }
-  // cordillera lejana con nieve
-  ctx.fillStyle = m.far; ridgePath(RIDGE_A, y0, mh); ctx.fill();
-  ctx.save(); ridgePath(RIDGE_A, y0, mh); ctx.clip();
-  ctx.fillStyle = mood === 'sunset' ? '#f3c9c0' : '#f7fafc'; ctx.beginPath(); ctx.moveTo(-10, 0);
-  const sl = y0 - mh * .6;
-  for (let i = 0; i <= 26; i++) ctx.lineTo(-10 + (W + 20) * i / 26, sl + (i % 2 ? mh * .07 : 0) + Math.sin(i * 1.7) * mh * .025);
-  ctx.lineTo(W + 10, 0); ctx.closePath(); ctx.fill(); ctx.restore();
-  // precordillera
-  ctx.fillStyle = m.near; ridgePath(RIDGE_B, y0, mh); ctx.fill();
-  // cóndor
-  const bx = ((t * 16 * MS) % (W + 160)) - 80, by = y0 - mh * .7 + Math.sin(t * .7) * 8, fl = Math.sin(t * 2.2) * 2.5;
-  ctx.strokeStyle = 'rgba(30,20,30,.7)'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+  const bx = ((t * 16 * MS) % (W + 160)) - 80, by = y0 - mh * .72 + Math.sin(t * .7) * 8, fl = Math.sin(t * 2.2) * 2.5;
+  ctx.strokeStyle = 'rgba(30,20,30,.7)'; ctx.lineWidth = 2; ctx.lineCap = 'round';   // cóndor
   ctx.beginPath(); ctx.moveTo(bx - 12, by - 3 + fl); ctx.quadraticCurveTo(bx - 5, by - 5, bx, by); ctx.quadraticCurveTo(bx + 5, by - 5, bx + 12, by - 3 + fl); ctx.stroke();
-  // lomas
-  ctx.fillStyle = m.hill; ctx.beginPath(); ctx.moveTo(0, y0 + 4);
-  for (let x = 0; x <= W; x += 8) ctx.lineTo(x, y0 - 9 - Math.sin(x * .021 + 1) * 7 - Math.sin(x * .05) * 3);
-  ctx.lineTo(W, y0 + 4); ctx.closePath(); ctx.fill();
-  // suelo e hileras en perspectiva
-  ctx.fillStyle = m.earth; ctx.fillRect(0, y0, W, H - y0);
-  const vx = W / 2;
-  for (let k = -5; k <= 5; k++) {
-    const tb = vx + k * W * .26, th = vx + k * W * .034, wb = W * .075, wh = W * .009;
-    ctx.fillStyle = m.row; ctx.beginPath(); ctx.moveTo(th - wh, y0); ctx.lineTo(th + wh, y0); ctx.lineTo(tb + wb, H); ctx.lineTo(tb - wb, H); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = m.rowD; ctx.beginPath(); ctx.moveTo(th, y0); ctx.lineTo(th + wh, y0); ctx.lineTo(tb + wb, H); ctx.lineTo(tb + wb * .25, H); ctx.closePath(); ctx.fill();
-  }
-  const fg = ctx.createLinearGradient(0, y0, 0, y0 + 50); fg.addColorStop(0, 'rgba(255,255,255,.28)'); fg.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = fg; ctx.fillRect(0, y0, W, 50);
-  if (soft) { ctx.globalAlpha = soft; ctx.fillStyle = m.earth; ctx.fillRect(0, y0, W, H - y0); ctx.globalAlpha = 1; }
+}
+function sheep(x, y, s, t, face = 1) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s * face, s);
+  ctx.fillStyle = 'rgba(40,25,10,.2)'; oval(0, 1, 13, 3);
+  ctx.strokeStyle = '#3a2a22'; ctx.lineWidth = 2.2; ctx.lineCap = 'round'; [-6, -2, 3, 7].forEach(px => line(px, -6, px, 0));
+  ctx.fillStyle = '#f1ead9'; dot(-5, -11, 6.5); dot(1, -13, 7); dot(6, -10, 6); dot(0, -8, 6.5);
+  const nod = Math.sin(t * 2.4) * 1.5 * MS; ctx.fillStyle = '#3a2a22'; oval(12, -7 + nod, 4, 3.2);
+  ctx.restore();
 }
 
-/* Bodega: muros de adobe, arcos, lámparas y barricas al fondo */
+/* Bodega de adobe: vigas, ventana, piso de tierra, tinajas y barricas */
+function cellarStatic() {
+  const R = seeded(77), fy = H * .8;
+  let g = ctx.createLinearGradient(0, 0, 0, fy); g.addColorStop(0, '#2c1e18'); g.addColorStop(.5, '#7a5a3e'); g.addColorStop(1, '#55392a');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, fy);
+  ctx.strokeStyle = 'rgba(40,22,10,.17)'; ctx.lineWidth = 1;
+  for (let y = TOP + 30, r = 0; y < fy; y += 24, r++) { line(0, y, W, y); for (let x = (r % 2) * 29; x < W; x += 58) line(x, y, x, y + 24); }
+  for (let i = 0; i < 110; i++) { ctx.fillStyle = i % 2 ? 'rgba(255,230,190,.05)' : 'rgba(30,15,5,.07)'; ctx.fillRect(R() * W, TOP + R() * (fy - TOP), 2 + R() * 5, 1.5 + R() * 2); }
+  const wx = W * .84, wy = TOP + 66;
+  ctx.fillStyle = 'rgba(255,225,160,.07)'; poly([[wx - 15, wy - 16], [wx + 15, wy - 16], [wx - 30, H], [wx - 170, H]]);
+  ctx.fillStyle = '#f3d594'; ctx.beginPath(); ctx.moveTo(wx - 15, wy + 20); ctx.lineTo(wx - 15, wy - 6); ctx.arc(wx, wy - 6, 15, Math.PI, 0); ctx.lineTo(wx + 15, wy + 20); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#4a2d1a'; ctx.lineWidth = 3; ctx.stroke(); ctx.lineWidth = 2; line(wx, wy - 21, wx, wy + 20); line(wx - 15, wy, wx + 15, wy);
+  ctx.fillStyle = '#35200f'; ctx.fillRect(0, TOP - 8, W, 16);
+  for (let i = 0; i < 6; i++) { ctx.fillStyle = '#4a2d1a'; ctx.fillRect(W * (.06 + i * .172), TOP + 8, 10, 11); }
+  g = ctx.createLinearGradient(0, fy, 0, H); g.addColorStop(0, '#6c4b36'); g.addColorStop(1, '#30211a');
+  ctx.fillStyle = g; ctx.fillRect(0, fy, W, H - fy);
+  for (let i = 0; i < 50; i++) { ctx.fillStyle = 'rgba(0,0,0,.12)'; oval(R() * W, fy + R() * (H - fy), 3 + R() * 9, 1 + R() * 2); }
+  ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fillRect(0, fy - 2, W, 4);
+  tinaja(W * .1, fy + 5, .95); tinaja(W * .25, fy + 1, .75); barrelSide(W * .93, fy - 20, 27, 1); barrelSide(W * .7, fy - 15, 20, .9);
+}
 function cellar(t) {
-  const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#2a191d'); g.addColorStop(.7, '#4c2e27'); g.addColorStop(1, '#2e1f1d');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  const fy = H * .8;
-  ctx.fillStyle = 'rgba(20,10,12,.5)';
-  for (let i = 0; i < 3; i++) { const ax = W * (.17 + i * .33), aw = W * .26; ctx.beginPath(); ctx.moveTo(ax - aw / 2, fy); ctx.lineTo(ax - aw / 2, H * .32); ctx.arc(ax, H * .32, aw / 2, Math.PI, 0); ctx.lineTo(ax + aw / 2, fy); ctx.closePath(); ctx.fill(); }
-  for (let i = 0; i < 6; i++) barrelSide(W * (.09 + i * .165), fy - 17, 25, .55);
-  ctx.fillStyle = '#35241f'; ctx.fillRect(0, fy, W, H - fy);
-  ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.lineWidth = 1;
-  for (let i = 1; i < 5; i++) line(0, fy + (H - fy) * i / 5, W, fy + (H - fy) * i / 5);
-  for (let i = 0; i < 2; i++) {
-    const lx = W * (.25 + i * .5), ly = TOP + 26, fl = .85 + Math.sin(t * 7 + i * 2) * .05 * MS;
-    ctx.strokeStyle = '#1a0f10'; ctx.lineWidth = 2; line(lx, TOP - 10, lx, ly);
-    const lg = ctx.createRadialGradient(lx, ly, 2, lx, ly, 120); lg.addColorStop(0, `rgba(255,214,140,${.5 * fl})`); lg.addColorStop(1, 'rgba(255,214,140,0)');
-    ctx.fillStyle = lg; ctx.fillRect(lx - 120, ly - 120, 240, 240);
-    ctx.fillStyle = '#ffe2a6'; ctx.beginPath(); ctx.arc(lx, ly, 5, 0, TAU); ctx.fill();
-  }
+  layer('cellar', cellarStatic);
+  const lx = W * .2, ly = TOP + 34, fl = .85 + Math.sin(t * 7) * .06 * MS;   // farol
+  ctx.strokeStyle = '#1a0f10'; ctx.lineWidth = 2; line(lx, TOP + 6, lx, ly - 8);
+  const lg = ctx.createRadialGradient(lx, ly, 2, lx, ly, 130); lg.addColorStop(0, `rgba(255,205,125,${.5 * fl})`); lg.addColorStop(1, 'rgba(255,205,125,0)');
+  ctx.fillStyle = lg; ctx.fillRect(lx - 130, ly - 130, 260, 260);
+  ctx.fillStyle = '#2a1a12'; ctx.fillRect(lx - 6, ly - 9, 12, 3); ctx.fillRect(lx - 6, ly + 7, 12, 3);
+  ctx.fillStyle = '#ffe2a6'; rr(lx - 4.5, ly - 6, 9, 13, 3); ctx.fill();
 }
 function barrelSide(x, y, r, al = 1) {
   ctx.save(); ctx.globalAlpha = al;
-  ctx.fillStyle = '#8a5d38'; ctx.beginPath(); ctx.ellipse(x, y, r * 1.25, r, 0, 0, TAU); ctx.fill();
-  ctx.strokeStyle = '#2f221c'; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(x, y, r * .78, r * .98, 0, 0, TAU); ctx.stroke();
+  const g = ctx.createLinearGradient(0, y - r, 0, y + r); g.addColorStop(0, '#b07d4c'); g.addColorStop(.5, '#8a5d38'); g.addColorStop(1, '#5f3d24');
+  ctx.fillStyle = g; oval(x, y, r * 1.25, r);
+  ctx.strokeStyle = 'rgba(60,35,15,.4)'; ctx.lineWidth = 1; for (let i = -2; i <= 2; i++) line(x - r * 1.15, y + i * r * .3, x + r * 1.15, y + i * r * .3);
+  ctx.strokeStyle = '#2f221c'; ctx.lineWidth = Math.max(2, r * .1); ctx.beginPath(); ctx.ellipse(x, y, r * .78, r * .98, 0, 0, TAU); ctx.stroke();
   ctx.beginPath(); ctx.ellipse(x, y, r * 1.22, r * .98, 0, 0, TAU); ctx.stroke();
   ctx.restore();
 }
 function barrelHead(x, y, r, tint, glow) {
-  ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(x, y + r * .96, r * .9, r * .16, 0, 0, TAU); ctx.fill();
-  ctx.fillStyle = '#2f221c'; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+  ctx.fillStyle = 'rgba(0,0,0,.35)'; oval(x, y + r * .96, r * .9, r * .16);
+  ctx.fillStyle = '#2f221c'; dot(x, y, r);
   ctx.save(); ctx.beginPath(); ctx.arc(x, y, r * .86, 0, TAU); ctx.clip();
-  ctx.fillStyle = '#a8763f'; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  const g = ctx.createLinearGradient(x - r, y - r, x + r, y + r); g.addColorStop(0, '#c08a50'); g.addColorStop(1, '#8a5d38');
+  ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2);
   ctx.strokeStyle = 'rgba(60,35,15,.45)'; ctx.lineWidth = 1.5;
   for (let i = -3; i <= 3; i++) line(x + i * r * .26, y - r, x + i * r * .26, y + r);
   ctx.fillStyle = tint; ctx.globalAlpha = .28 + glow * .6; ctx.fillRect(x - r, y - r, r * 2, r * 2);
   ctx.restore();
+  ctx.fillStyle = '#2f221c'; dot(x, y, r * .07);
   ctx.strokeStyle = glow > .05 ? `rgba(255,236,190,${.4 + glow * .6})` : '#8d9399'; ctx.lineWidth = 3 + glow * 3;
   ctx.beginPath(); ctx.arc(x, y, r * .93, 0, TAU); ctx.stroke();
 }
@@ -447,9 +644,10 @@ function bottlePath(x, yb, h) {
 }
 function bottle(x, yb, h, fill, o = {}) {
   const w = h * .27, nw = w * .36;
-  ctx.save(); bottlePath(x, yb, h); ctx.fillStyle = 'rgba(38,66,44,.55)'; ctx.fill(); ctx.clip();
+  ctx.save(); bottlePath(x, yb, h); ctx.fillStyle = 'rgba(34,62,40,.62)'; ctx.fill(); ctx.clip();
   if (fill > 0) { ctx.fillStyle = '#5a0f2a'; ctx.fillRect(x - w, yb - h * fill, w * 2, h * fill); }
-  ctx.fillStyle = 'rgba(255,255,255,.14)'; ctx.fillRect(x - w * .38, yb - h, w * .14, h);
+  ctx.fillStyle = 'rgba(255,255,255,.16)'; ctx.fillRect(x - w * .38, yb - h, w * .14, h);
+  ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.fillRect(x + w * .28, yb - h, w * .3, h);
   ctx.restore();
   bottlePath(x, yb, h); ctx.strokeStyle = 'rgba(190,230,200,.55)'; ctx.lineWidth = 1.5; ctx.stroke();
   if (o.marks) {
@@ -461,11 +659,11 @@ function bottle(x, yb, h, fill, o = {}) {
   if (o.label > 0) {
     const lw = w * .96, lh = h * .3, ly = yb - h * .5;
     ctx.globalAlpha = Math.min(1, o.label); ctx.fillStyle = '#f4eadf'; ctx.fillRect(x - lw / 2, ly, lw, lh);
-    ctx.fillStyle = '#cf2f4a'; ctx.fillRect(x - lw / 2, ly + lh * .16, lw, lh * .1);
+    ctx.fillStyle = '#cf2f4a'; ctx.fillRect(x - lw / 2, ly + lh * .1, lw, lh * .07);
     if (o.text) {
       const fit = (str, size, weight, font) => { ctx.font = `${weight} ${size}px ${font}`; const tw = ctx.measureText(str).width; return tw > lw * .88 ? size * lw * .88 / tw : size; };
       let lines = [o.text[0]];
-      if (o.text[0].length > 11 && o.text[0].includes(' ')) { const w = o.text[0].split(' '); let best = 1, bd = 1e9; for (let i = 1; i < w.length; i++) { const d = Math.abs(w.slice(0, i).join(' ').length - o.text[0].length / 2); if (d < bd) { bd = d; best = i; } } lines = [w.slice(0, best).join(' '), w.slice(best).join(' ')]; }
+      if (o.text[0].length > 11 && o.text[0].includes(' ')) { const ws = o.text[0].split(' '); let best = 1, bd = 1e9; for (let i = 1; i < ws.length; i++) { const d = Math.abs(ws.slice(0, i).join(' ').length - o.text[0].length / 2); if (d < bd) { bd = d; best = i; } } lines = [ws.slice(0, best).join(' '), ws.slice(best).join(' ')]; }
       const ns = Math.min(...lines.map(l => fit(l, h * .05, 400, DISPLAY)));
       lines.forEach((l, i) => txt(l, x, ly + lh * (lines.length === 1 ? .4 : .34 + i * .15), ns, '#2b1423', 'center', 400, DISPLAY));
       txt('CARMÉNÈRE', x, ly + lh * .66, fit('CARMÉNÈRE', h * .034, 800, FONT), '#cf2f4a', 'center', 800);
@@ -476,17 +674,19 @@ function bottle(x, yb, h, fill, o = {}) {
   }
 }
 
-/* Efectos: partículas y textos flotantes */
+/* Efectos: partículas, anillos de toque y textos flotantes */
 const fx = {
   p: [],
   burst(x, y, color, n = 10) { for (let i = 0; i < n; i++) { const a = rnd(0, TAU), v = rnd(40, 170); this.p.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60, life: rnd(.35, .7), t: 0, color, r: rnd(2, 4.5) }); } },
-  text(x, y, s, color = '#fff') { this.p.push({ x: clamp(x, 60, W - 60), y, vx: 0, vy: -42, life: 1, t: 0, color, s }); },
-  update(dt) { for (const p of this.p) { p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; if (!p.s) p.vy += 420 * dt; } this.p = this.p.filter(p => p.t < p.life); },
+  text(x, y, s, color = '#fff') { this.p.push({ x, y, vx: 0, vy: -42, life: 1, t: 0, color, s }); },
+  ring(x, y, color = '#fff') { this.p.push({ x, y, vx: 0, vy: 0, life: .35, t: 0, color, ring: 1 }); },
+  update(dt) { for (const p of this.p) { p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; if (!p.s && !p.ring) p.vy += 420 * dt; } this.p = this.p.filter(p => p.t < p.life); },
   draw() {
     for (const p of this.p) {
       const al = 1 - p.t / p.life;
-      if (p.s) { ctx.globalAlpha = Math.min(1, al * 2); ctx.font = `800 15px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(29,13,24,.85)'; ctx.strokeText(p.s, p.x, p.y); ctx.fillStyle = p.color; ctx.fillText(p.s, p.x, p.y); }
-      else { ctx.globalAlpha = al; ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, TAU); ctx.fill(); }
+      if (p.s) { ctx.globalAlpha = Math.min(1, al * 2); ctx.font = `800 15px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; const hw = ctx.measureText(p.s).width / 2 + 6, tx2 = clamp(p.x, hw, W - hw); ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(29,13,24,.85)'; ctx.strokeText(p.s, tx2, p.y); ctx.fillStyle = p.color; ctx.fillText(p.s, tx2, p.y); }
+      else if (p.ring) { ctx.globalAlpha = al; ctx.strokeStyle = p.color; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(p.x, p.y, 8 + (1 - al) * 20, 0, TAU); ctx.stroke(); }
+      else { ctx.globalAlpha = al; ctx.fillStyle = p.color; dot(p.x, p.y, p.r); }
     }
     ctx.globalAlpha = 1;
   }
@@ -497,37 +697,37 @@ const GOOD = '#b6f08c', BAD = '#ff9a8a', GOLD = '#ffd774';
    Contenido de las ocho etapas
    ============================================================ */
 const LEVELS = [
-  { phase: 'Investigar', title: 'El misterio del Merlot', tag: 'Alto Jahuel, Valle del Maipo, 1994',
-    story: 'Tu Merlot siempre fue distinto: madura tarde y recuerda al pimentón. Un ampelógrafo francés acaba de notar algo en un viñedo vecino. Revisa tus parras en primavera: los brotes jóvenes del Merlot son verde pálido; los de la cepa desconocida tienen tonos rojizos.',
-    how: 'Toca las parras con brotes rojizos. En cada ronda la diferencia es más sutil.',
+  { phase: 'Investigar', title: 'El misterio del Merlot', tag: 'La viña de Tomás, primavera de 1994',
+    story: 'Tomás heredó de su abuelo unas hileras de Merlot que siempre fueron distintas: maduran tarde y recuerdan al pimentón. Un ampelógrafo francés acaba de notar algo en un viñedo del valle. Lupa en mano, Tomás revisa sus brotes de primavera: los del Merlot son verde pálido; los de la cepa desconocida, rojizos.',
+    how: 'Toca las parras con brotes rojizos y Tomás irá a examinarlas. En cada ronda la diferencia es más sutil.',
     fact: 'El 24 de noviembre de 1994, el ampelógrafo francés Jean-Michel Boursiquot identificó en un viñedo de Alto Jahuel, Valle del Maipo, que parte del llamado Merlot chileno era en realidad Carménère.' },
-  { phase: 'Investigar', title: 'Lo básico del viñedo', tag: 'Abastecimiento',
-    story: 'Confirmado: entre tus hileras hay Carménère. Para producirlo como corresponde necesitas plantas identificadas, postes para la espaldera, goteros de riego, tijeras de podar y cajas cosecheras.',
-    how: 'Arrastra la carreta para recibir lo que falta en tu lista. Esquiva la maleza y la arañita roja.',
+  { phase: 'Investigar', title: 'Lo básico del viñedo', tag: 'Abastecimiento sin químicos',
+    story: 'Confirmado: entre sus hileras hay Carménère. Tomás quiere cultivarlo como siempre ha trabajado su tierra, sin agroquímicos. Necesita plantas nuevas, rodrigones de madera, compost, tijeras de podar y canastos de mimbre.',
+    how: 'Arrastra para que Tomás lleve la carretilla y reciba lo que falta en la lista. Esquiva los bidones de herbicida y plaguicida.',
     fact: 'El Carménère llegó a Chile a mediados del siglo XIX, mezclado entre estacas traídas desde Burdeos. Poco después la filoxera arrasó los viñedos europeos y la cepa casi desapareció de Francia. Chile se ha mantenido libre de esa plaga.' },
-  { phase: 'Viñedo', title: 'Riego y deshoje', tag: 'Manejo del viñedo',
-    story: 'El Carménère es una cepa vigorosa. Con agua de más o con los racimos a la sombra, el vino resulta herbáceo. Mantén el suelo en su punto y la fruta al sol.',
-    how: 'Toca la base de la parra para regar. Toca las hojas que tapan el racimo para retirarlas.',
-    fact: 'Las pirazinas son los compuestos que dan al Carménère su nota de pimentón verde. El exceso de vigor y la sombra sobre los racimos las acentúan; el riego controlado y el deshoje ayudan a reducirlas.' },
-  { phase: 'Viñedo', title: 'La vendimia tardía', tag: 'Cosecha, de febrero a mayo',
-    story: 'El Merlot madura primero. El Carménère necesita varias semanas más de sol. Cosecharlos juntos fue el error de décadas: la mitad de la uva entraba verde a la bodega.',
-    how: 'Toca cada racimo cuando esté oscuro y brillante. Verde o rosado: falta. Arrugado: tarde.',
+  { phase: 'Viñedo', title: 'Surco y deshoje', tag: 'Manejo orgánico del viñedo',
+    story: 'El Carménère es una cepa vigorosa. Con agua de más o con los racimos a la sombra, el vino resulta herbáceo. Tomás riega por surco con el agua de la acequia y deshoja a mano, parra por parra.',
+    how: 'Toca la base de una parra para que Tomás abra el surco con su azadón. Toca las hojas que tapan el racimo para que las retire.',
+    fact: 'Las pirazinas son los compuestos que dan al Carménère su nota de pimentón verde. El exceso de vigor y la sombra sobre los racimos las acentúan; el riego medido y el deshoje ayudan a reducirlas.' },
+  { phase: 'Viñedo', title: 'La vendimia tardía', tag: 'Cosecha a mano, de febrero a mayo',
+    story: 'El Merlot madura primero. El Carménère necesita varias semanas más de sol. Cosecharlos juntos fue el error de décadas: la mitad de la uva entraba verde a la bodega. Tomás vendimia con tijera y canasto.',
+    how: 'Toca cada racimo cuando esté oscuro y brillante y Tomás irá a cortarlo. Verde o rosado: falta. Arrugado: tarde.',
     fact: 'El Carménère es una de las cepas tintas más tardías: se cosecha varias semanas después que el Merlot, por lo general entre fines de abril y mayo. En otoño sus hojas se tiñen de carmín, color al que se atribuye su nombre.' },
-  { phase: 'Bodega', title: 'Mesa de selección', tag: 'Recepción de la uva',
-    story: 'Solo la mejor fruta entra a la cuba. Hojas, escobajos, uvas verdes y uvas con pudrición deben salir de la cinta antes del despalillado.',
-    how: 'Toca todo lo que no sea uva sana antes de que llegue a la despalilladora.',
-    fact: 'El despalillado separa las bayas del escobajo, el esqueleto leñoso del racimo. Si los tallos verdes llegaran a la cuba, sumarían amargor y notas vegetales al vino.' },
-  { phase: 'Bodega', title: 'Fermentación', tag: 'Cuba de acero inoxidable',
-    story: 'Las levaduras convierten el azúcar en alcohol y generan calor. Entre 24 y 28 °C extraen color y aroma; fuera de ese rango la fermentación se resiente.',
-    how: 'Mantén presionado Enfriar para bajar la temperatura. Usa Remontaje antes de que el sombrero se seque.',
-    fact: 'Durante la fermentación, los hollejos suben y forman una capa llamada sombrero. El remontaje bombea el mosto desde el fondo de la cuba para mojarlo y así extraer color y taninos.' },
+  { phase: 'Bodega', title: 'La zaranda', tag: 'Selección a mano en la bodega de adobe',
+    story: 'En la bodega de Tomás no hay máquinas. La uva baja por la mesa de madera hacia la zaranda y solo debe llegar fruta sana: fuera hojas, escobajos, uvas verdes y uvas con pudrición.',
+    how: 'Toca todo lo que no sea uva sana para que Tomás lo aparte con su vara de coligüe antes de que llegue a la zaranda.',
+    fact: 'La zaranda es una rejilla de cañas de coligüe usada en el campo chileno para despalillar a mano: al frotar los racimos sobre ella, las bayas caen al lagar y el escobajo, que aportaría amargor, queda arriba.' },
+  { phase: 'Bodega', title: 'Fermentación', tag: 'Lagar abierto de raulí',
+    story: 'Tomás no agrega levaduras: fermenta con las que llegan en la piel de la uva. Ellas convierten el azúcar en alcohol y generan calor. Entre 24 y 28 °C extraen color y aroma; fuera de ese rango la fermentación se resiente.',
+    how: 'Mantén presionado Refrescar para que Tomás moje el lagar con agua de pozo. Usa Pisoneo antes de que el sombrero se seque.',
+    fact: 'Durante la fermentación, los hollejos suben y forman una capa llamada sombrero. El pisoneo lo hunde a mano con un pisón de madera para mantenerlo húmedo y extraer color y taninos.' },
   { phase: 'Bodega', title: 'Crianza en barrica', tag: 'Sala de barricas',
-    story: 'Doce meses en roble afinan los taninos. En cada cata el vino muestra un aroma nuevo, y un buen enólogo los reconoce en orden.',
+    story: 'Doce meses en barricas usadas de roble afinan los taninos sin tapar la fruta. En cada cata el vino muestra un aroma nuevo, y Tomás los reconoce en orden.',
     how: 'Observa la secuencia de aromas y repítela tocando las barricas. Cada acierto suma dos meses de crianza.',
     fact: 'Un Carménère bien maduro entrega frutos negros como mora y ciruela, pimienta negra y pimentón rojo. La barrica de roble aporta notas de chocolate, tabaco y vainilla, y suaviza los taninos.' },
-  { phase: 'Bodega', title: 'Embotellado y etiqueta', tag: 'Línea de embotellado',
-    story: 'Durante años este vino se vendió como Merlot. Desde 1998 la cepa puede figurar en la etiqueta. Llegó el momento de embotellar tu Carménère con su nombre verdadero.',
-    how: 'Mantén presionado Llenar y suelta cuando el vino quede entre las dos marcas doradas.',
+  { phase: 'Bodega', title: 'Embotellado y etiqueta', tag: 'Llenado a mano desde la barrica',
+    story: 'Tomás llena cada botella a mano, directo de la barrica, y la cierra con corcho natural. Durante años este vino se vendió como Merlot; desde 1998 la cepa puede figurar en la etiqueta con su nombre verdadero.',
+    how: 'Mantén presionado Llenar para que Tomás abra la llave y suelta cuando el vino quede entre las dos marcas doradas.',
     fact: 'En 1998 el Ministerio de Agricultura de Chile reconoció oficialmente al Carménère como variedad. Hoy Chile concentra la mayor superficie plantada del mundo y cada 24 de noviembre se celebra el Día del Carménère.' }
 ];
 
@@ -558,62 +758,76 @@ function holdButton(sel, on) {
 }
 
 /* ============================================================
-   Etapa 1. Investigación: identificar el Carménère
+   Etapa 1. Investigación: Tomás examina los brotes con su lupa
    ============================================================ */
 function level1() {
-  const R = [{ c: 4, sub: 1, time: 18 }, { c: 5, sub: .6, time: 17 }, { c: 5, sub: .4, time: 16 }];
+  const R = [{ c: 4, sub: 1, time: 22 }, { c: 5, sub: .6, time: 21 }, { c: 5, sub: .4, time: 20 }];
   const TOTAL = 14, MERLOT = [214, 230, 172], CARM = [196, 66, 44];
   const S = { round: 0, left: 0, found: 0, wrong: 0, saved: 0, v: [], wait: 0, roundFound: 0 };
+  const w = makeWorker(W * .5, H - 12);
   function setup() {
     const r = R[S.round], ids = shuffle([...Array(12).keys()]).slice(0, r.c);
-    S.v = []; for (let i = 0; i < 12; i++) S.v.push({ col: i % 3, row: i / 3 | 0, car: ids.includes(i), found: false, shake: 0, ph: rnd(0, 6) });
+    S.v = []; for (let i = 0; i < 12; i++) S.v.push({ col: i % 3, row: i / 3 | 0, car: ids.includes(i), found: false, queued: false, shake: 0, ph: rnd(0, 6) });
     S.left = r.time; S.roundFound = 0; toast(`Ronda ${S.round + 1} de 3`);
   }
-  function geo(v) { const top = H * .33, cw = (W - 24) / 3, ch = (H - top - 14) / 4; return { x: 12 + cw * (v.col + .5), y: top + ch * (v.row + 1) - 6, cw, ch, s: Math.min(cw / 104, ch / 96) }; }
+  function geo(v) { const top = H * .33, cw = (W - 24) / 3, ch = (H - top - 14) / 4; return { x: 12 + cw * (v.col + .62), y: top + ch * (v.row + 1) - 6, cw, ch, cx: 12 + cw * (v.col + .5), s: Math.min(cw / 112, ch / 96) }; }
   const pts = () => Math.max(0, S.found * 100 - S.wrong * 40 + Math.round(S.saved * 5));
+  function endRound(msg) { S.wait = 1.4; w.q = []; w.cur = null; w.act = 0; S.v.forEach(v => v.queued = false); toast(msg); }
+  function judge(v) {
+    const g = geo(v); v.queued = false;
+    if (S.wait > 0 || v.found) return;
+    if (v.car) {
+      v.found = true; S.found++; S.roundFound++; sfx.ok(); fx.burst(g.x, g.y - 60 * g.s, '#e0553a', 12); fx.text(g.x, g.y - 78 * g.s, '+100', GOOD);
+      if (S.roundFound >= R[S.round].c) { S.saved += S.left; endRound('Ronda completa'); S.wait = 1; }
+    } else { v.shake = .35; S.wrong++; sfx.bad(); fx.text(g.x, g.y - 78 * g.s, 'Es Merlot', BAD); }
+  }
   setup();
   return {
     update(dt) {
       for (const v of S.v) v.shake = Math.max(0, v.shake - dt);
+      workerUpdate(w, dt, 640, .32);
       if (S.wait > 0) {
         S.wait -= dt;
         if (S.wait <= 0) {
           if (S.round >= R.length - 1) {
-            const ratio = clamp((S.found - .5 * S.wrong) / TOTAL, 0, 1) * .85 + .15 * clamp(S.saved / 22, 0, 1);
-            return endLevel(ratio, `Identificaste ${S.found} de ${TOTAL} parras de Carménère, con ${S.wrong} ${S.wrong === 1 ? 'error' : 'errores'}.`);
+            const ratio = clamp((S.found - .5 * S.wrong) / TOTAL, 0, 1) * .85 + .15 * clamp(S.saved / 24, 0, 1);
+            return endLevel(ratio, `Tomás identificó ${S.found} de ${TOTAL} parras de Carménère, con ${S.wrong} ${S.wrong === 1 ? 'error' : 'errores'}.`);
           }
           S.round++; setup();
         }
         return;
       }
       S.left -= dt;
-      if (S.left <= 0) { S.left = 0; S.wait = 1.4; toast('Se acabó el tiempo de la ronda'); }
+      if (S.left <= 0) { S.left = 0; endRound('Se acabó el tiempo de la ronda'); }
       hud(S.left / R[S.round].time, pts() + ' pts');
     },
     draw(t) {
-      backdrop(t, 'day', .27, .5);
-      const tip = mix(MERLOT, CARM, R[S.round].sub);
+      backdrop(t, 'day', .27, .7, true);
+      const tip = mix(MERLOT, CARM, R[S.round].sub), a = acting(w);
+      const man = () => farmer(w.x, w.y, geo(S.v[0]).s * 1.02, { face: w.face, moving: w.moving, ph: w.ph, t, tool: 'lupa', hand: a >= 0 ? [18, -78 - Math.sin(a * Math.PI) * 5] : [10, -58] });
+      let drawn = false;
       for (const v of S.v) {
         const g = geo(v), dx = v.shake > 0 ? Math.sin(v.shake * 50) * 4 : 0;
-        vine(g.x + dx, g.y, g.s, t, { ph: v.ph, tip: rgb(v.car ? tip : MERLOT) });
+        if (!drawn && g.y > w.y) { man(); drawn = true; }
+        vine(g.x + dx, g.y, g.s, t, { ph: v.ph, tip: rgb(v.car ? tip : MERLOT), stake: true });
+        if (v.queued) { ctx.strokeStyle = 'rgba(255,255,255,.8)'; ctx.lineWidth = 2; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.ellipse(g.x, g.y - 44 * g.s, 36 * g.s, 40 * g.s, 0, 0, TAU); ctx.stroke(); ctx.setLineDash([]); }
         if (v.found || (S.wait > 0 && v.car)) {
           ctx.strokeStyle = v.found ? '#cf2f4a' : '#ffd774'; ctx.lineWidth = 3; ctx.setLineDash(v.found ? [] : [5, 4]);
           ctx.beginPath(); ctx.ellipse(g.x, g.y - 44 * g.s, 38 * g.s, 42 * g.s, 0, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
-          if (v.found) label('Carménère', g.x, g.y - 6, 11, '#fff', '#cf2f4a');
+          if (v.found) label('Carménère', g.x, g.y - 4, 11, '#fff', '#cf2f4a');
         }
       }
+      if (!drawn) man();
       label(`Carménère por encontrar: ${R[S.round].c - S.roundFound}`, W / 2, TOP + 22, 13);
     },
     down(x, y) {
       if (S.wait > 0) return;
       for (const v of S.v) {
         const g = geo(v);
-        if (Math.abs(x - g.x) < g.cw / 2 && y < g.y + 8 && y > g.y - g.ch + 8) {
-          if (v.found) return;
-          if (v.car) {
-            v.found = true; S.found++; S.roundFound++; sfx.ok(); fx.burst(g.x, g.y - 60 * g.s, '#e0553a', 12); fx.text(g.x, g.y - 70 * g.s, '+100', GOOD);
-            if (S.roundFound >= R[S.round].c) { S.saved += S.left; S.wait = 1; toast('Ronda completa'); }
-          } else { v.shake = .35; S.wrong++; sfx.bad(); fx.text(g.x, g.y - 70 * g.s, 'Es Merlot', BAD); }
+        if (Math.abs(x - g.cx) < g.cw / 2 && y < g.y + 8 && y > g.y - g.ch + 8) {
+          if (v.found || v.queued || w.q.length >= 3) return;
+          v.queued = true; sfx.tap(); fx.ring(x, y);
+          w.q.push({ x: g.x - 33 * g.s, y: g.y + 3, face: 1, done: () => judge(v) });
           return;
         }
       }
@@ -622,56 +836,53 @@ function level1() {
 }
 
 /* ============================================================
-   Etapa 2. Abastecimiento: reunir lo básico
+   Etapa 2. Abastecimiento: Tomás reúne lo básico en su carretilla
    ============================================================ */
 function item(k, x, y, s) {
   ctx.save(); ctx.translate(x, y); ctx.scale(s, s); ctx.lineCap = 'round';
   if (k === 'planta') {
-    ctx.fillStyle = '#9a5b3c'; ctx.beginPath(); ctx.moveTo(-10, 3); ctx.lineTo(10, 3); ctx.lineTo(7, 17); ctx.lineTo(-7, 17); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#9a5b3c'; poly([[-10, 3], [10, 3], [7, 17], [-7, 17]]); ctx.fillStyle = '#7d4528'; ctx.fillRect(-11, 1, 22, 4);
     ctx.strokeStyle = '#3f7a2c'; ctx.lineWidth = 2.5; line(0, 3, 0, -10); leaf(-7, -8, 8, -.8, '#5aa53e'); leaf(7, -13, 8, .7, '#6bb84a');
   } else if (k === 'poste') {
-    ctx.fillStyle = '#8a6240'; ctx.fillRect(-3.5, -17, 7, 34); ctx.fillStyle = '#6f4c30'; ctx.fillRect(-3.5, -17, 7, 4);
-    ctx.strokeStyle = '#d5d9dc'; ctx.lineWidth = 1.5; line(-15, -8, 15, -8); line(-15, 3, 15, 3);
-  } else if (k === 'riego') {
-    ctx.strokeStyle = '#1f1f24'; ctx.lineWidth = 5; line(-15, -9, 15, -9); ctx.fillStyle = '#4a4a55'; ctx.fillRect(-4, -13, 8, 9);
-    ctx.fillStyle = '#4fb3f0'; ctx.beginPath(); ctx.moveTo(0, -1); ctx.bezierCurveTo(8, 9, 6, 17, 0, 17); ctx.bezierCurveTo(-6, 17, -8, 9, 0, -1); ctx.fill();
+    ctx.fillStyle = '#9a7448'; poly([[-4, -18], [0, -23], [4, -18], [4, 18], [-4, 18]]); ctx.fillStyle = '#7a5a36'; ctx.fillRect(1, -18, 3, 36);
+    ctx.strokeStyle = 'rgba(60,35,15,.5)'; ctx.lineWidth = 1; line(-2, -10, -1, 4); line(-1, 8, -2, 15);
+  } else if (k === 'compost') {
+    ctx.fillStyle = '#b89a62'; rr(-13, -7, 26, 24, 7); ctx.fill(); ctx.strokeStyle = 'rgba(90,65,30,.5)'; ctx.lineWidth = 1; line(-13, 2, 13, 2); line(-13, 9, 13, 9); line(-5, -6, -5, 16); line(5, -6, 5, 16);
+    ctx.fillStyle = '#3d2a1c'; oval(0, -8, 12, 6); ctx.fillStyle = '#6bb84a'; dot(-5, -10, 2); dot(4, -9, 1.8); ctx.fillStyle = '#c98a3a'; dot(0, -11, 1.6);
   } else if (k === 'tijera') {
-    ctx.fillStyle = '#c8ced4'; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-7, -17); ctx.lineTo(-1, -15); ctx.closePath(); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(7, -17); ctx.lineTo(1, -15); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#c8ced4'; poly([[0, 0], [-7, -17], [-1, -15]]); poly([[0, 0], [7, -17], [1, -15]]);
     ctx.strokeStyle = '#cf2f4a'; ctx.lineWidth = 4.5; line(0, 0, -8, 15); line(0, 0, 8, 15);
-    ctx.fillStyle = '#4a4a55'; ctx.beginPath(); ctx.arc(0, 0, 2.6, 0, TAU); ctx.fill();
-  } else if (k === 'caja') {
-    ctx.fillStyle = '#c79a5e'; ctx.fillRect(-15, -9, 30, 20); ctx.strokeStyle = '#8a6240'; ctx.lineWidth = 1.5; ctx.strokeRect(-15, -9, 30, 20);
-    line(-15, -2, 15, -2); line(-15, 5, 15, 5); ctx.fillStyle = '#8a6240'; ctx.fillRect(-5, -6, 10, 3);
-  } else if (k === 'maleza') {
-    ctx.strokeStyle = '#a79a34'; ctx.lineWidth = 2.5;
-    for (let i = -3; i <= 3; i++) { const a = i * .33; line(0, 15, Math.sin(a) * 26, 15 - Math.cos(a) * (26 - Math.abs(i) * 2)); }
-    ctx.fillStyle = '#d9c64a'; ctx.beginPath(); ctx.arc(0, -12, 3.5, 0, TAU); ctx.fill();
-  } else if (k === 'plaga') {
-    ctx.strokeStyle = '#3a1210'; ctx.lineWidth = 1.8;
-    for (let i = 0; i < 4; i++) { const a = -.9 + i * .6; line(0, 0, Math.cos(a) * 15, Math.sin(a) * 13); line(0, 0, -Math.cos(a) * 15, Math.sin(a) * 13); }
-    ctx.fillStyle = '#b3261e'; ctx.beginPath(); ctx.ellipse(0, 0, 9, 11, 0, 0, TAU); ctx.fill();
-    ctx.fillStyle = '#6e120e'; ctx.beginPath(); ctx.arc(0, -8, 4.5, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#4a4a55'; dot(0, 0, 2.6);
+  } else if (k === 'canasto') {
+    ctx.strokeStyle = '#7a5526'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.ellipse(0, -6, 11, 10, 0, Math.PI, 0); ctx.stroke();
+    ctx.fillStyle = '#b3873f'; poly([[-15, -6], [15, -6], [11, 13], [-11, 13]]); ctx.strokeStyle = 'rgba(90,55,20,.6)'; ctx.lineWidth = 1.2; line(-14, 0, 14, 0); line(-12, 6, 12, 6); for (let i = -2; i <= 2; i++) line(i * 5.5, -6, i * 4.4, 13);
+    ctx.fillStyle = '#7a5526'; rr(-16, -8, 32, 4, 2); ctx.fill();
+  } else {   // bidones de agroquímicos
+    ctx.fillStyle = k === 'herbicida' ? '#e0b422' : '#c8382c'; rr(-11, -10, 22, 27, 4); ctx.fill();
+    ctx.fillStyle = '#2a2a2e'; ctx.fillRect(-3, -15, 8, 6); ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(-6, -11, 4, Math.PI, 1.5 * Math.PI); ctx.stroke();
+    ctx.fillStyle = '#fff'; rr(-7, -2, 14, 14, 2); ctx.fill(); ctx.strokeStyle = '#1d0d18'; ctx.lineWidth = 2.4; line(-4, 1, 4, 9); line(4, 1, -4, 9);
   }
   ctx.restore();
 }
 function level2() {
-  const NEED = [{ k: 'planta', n: 'Plantas', q: 4 }, { k: 'poste', n: 'Postes', q: 3 }, { k: 'riego', n: 'Goteros', q: 3 }, { k: 'tijera', n: 'Tijeras', q: 2 }, { k: 'caja', n: 'Cajas', q: 2 }];
-  const BADS = [{ k: 'maleza', n: 'Maleza' }, { k: 'plaga', n: 'Arañita roja' }];
+  const NEED = [{ k: 'planta', n: 'Plantas', q: 4 }, { k: 'poste', n: 'Rodrigones', q: 3 }, { k: 'compost', n: 'Compost', q: 3 }, { k: 'tijera', n: 'Tijeras', q: 2 }, { k: 'canasto', n: 'Canastos', q: 2 }];
+  const BADS = [{ k: 'herbicida', n: 'Herbicida' }, { k: 'plaguicida', n: 'Plaguicida' }];
   const D = 55, TOTAL = 14;
-  const S = { t: 0, have: {}, got: 0, err: 0, items: [], next: .5, cart: W / 2, target: W / 2, done: false, bump: 0 };
+  const S = { t: 0, have: {}, got: 0, err: 0, items: [], next: .5, cart: W / 2, target: W / 2, done: false, bump: 0, side: 1, ph: 0, moving: false };
   NEED.forEach(n => S.have[n.k] = 0);
-  const cartY = () => H - 62;
+  const cartY = () => H - 66;
   function finish(msg) {
     if (S.done) return; S.done = true;
     const ratio = clamp(S.got / TOTAL - S.err * .12 + (S.got >= TOTAL ? .12 * (1 - S.t / D) : 0), 0, 1);
-    endLevel(ratio, `${msg} Reuniste ${S.got} de ${TOTAL} insumos, con ${S.err} ${S.err === 1 ? 'tropiezo' : 'tropiezos'}.`);
+    endLevel(ratio, `${msg} Tomás reunió ${S.got} de ${TOTAL} insumos y cargó ${S.err} ${S.err === 1 ? 'bidón' : 'bidones'} de agroquímicos.`);
   }
   return {
     update(dt) {
       if (S.done) return;
       S.t += dt; S.bump = Math.max(0, S.bump - dt);
-      S.cart = lerp(S.cart, S.target, 1 - Math.pow(.0005, dt));
+      const before = S.cart; S.cart = lerp(S.cart, S.target, 1 - Math.pow(.0005, dt));
+      const vel = (S.cart - before) / Math.max(dt, .001); S.moving = Math.abs(vel) > 25;
+      if (S.moving) { S.ph += dt * 15; S.side = lerp(S.side, Math.sign(vel), 1 - Math.pow(.001, dt)); }
       S.next -= dt;
       if (S.next <= 0) {
         S.next = lerp(.75, .5, S.t / D);
@@ -683,13 +894,13 @@ function level2() {
       const cy = cartY();
       for (const it of S.items) {
         it.y += it.v * dt;
-        if (!it.dead && it.y > cy - 26 && it.y < cy + 6 && Math.abs(it.x - S.cart) < 50) {
+        if (!it.dead && it.y > cy - 34 && it.y < cy + 4 && Math.abs(it.x - S.cart - 6 * (S.side >= 0 ? 1 : -1)) < 52) {
           it.dead = true;
-          if (it.bad) { S.err++; S.bump = .4; sfx.bad(); fx.text(it.x, cy - 40, it.n, BAD); fx.burst(it.x, cy - 20, '#b3261e', 8); if (S.err >= 3) return finish('La carreta quedó infestada.'); }
+          if (it.bad) { S.err++; S.bump = .4; sfx.bad(); fx.text(it.x, cy - 44, it.n + ': no', BAD); fx.burst(it.x, cy - 22, '#c8382c', 8); if (S.err >= 3) return finish('Demasiados agroquímicos para una viña orgánica.'); }
           else {
             const need = NEED.find(n => n.k === it.k);
-            if (S.have[it.k] < need.q) { S.have[it.k]++; S.got++; sfx.ok(); fx.text(it.x, cy - 40, '+1 ' + it.n, GOOD); fx.burst(it.x, cy - 20, '#e6b450', 8); if (S.got >= TOTAL) return finish('Lista completa.'); }
-            else fx.text(it.x, cy - 40, 'Ya tienes', '#fff');
+            if (S.have[it.k] < need.q) { S.have[it.k]++; S.got++; sfx.ok(); fx.text(it.x, cy - 44, '+1 ' + it.n, GOOD); fx.burst(it.x, cy - 22, '#e6b450', 8); if (S.got >= TOTAL) return finish('Lista completa.'); }
+            else fx.text(it.x, cy - 44, 'Ya tiene', '#fff');
           }
         }
       }
@@ -698,90 +909,103 @@ function level2() {
       hud(1 - S.t / D, `${S.got}/${TOTAL}`);
     },
     draw(t) {
-      backdrop(t, 'dawn', .3, .35);
-      // lista de insumos
+      backdrop(t, 'dawn', .3, .6, true);
       const cw = (W - 24) / 5;
       NEED.forEach((n, i) => {
         const x = 12 + cw * (i + .5), ok = S.have[n.k] >= n.q;
-        ctx.fillStyle = ok ? 'rgba(60,110,45,.9)' : 'rgba(29,13,24,.8)'; rr(x - cw / 2 + 3, TOP + 6, cw - 6, 34, 8); ctx.fill();
+        ctx.fillStyle = ok ? 'rgba(60,110,45,.92)' : 'rgba(29,13,24,.82)'; rr(x - cw / 2 + 3, TOP + 6, cw - 6, 34, 8); ctx.fill();
         item(n.k, x - cw * .2, TOP + 23, .58);
         txt(`${S.have[n.k]}/${n.q}`, x + cw * .16, TOP + 23, 13, '#fff');
       });
       for (const it of S.items) {
         ctx.save(); ctx.translate(it.x, it.y); ctx.rotate(it.rot + Math.sin(t * 3 + it.x) * .12); ctx.translate(-it.x, -it.y);
-        ctx.fillStyle = it.bad ? 'rgba(90,20,20,.35)' : 'rgba(255,255,255,.35)'; ctx.beginPath(); ctx.arc(it.x, it.y, 25, 0, TAU); ctx.fill();
+        ctx.fillStyle = it.bad ? 'rgba(90,20,20,.4)' : 'rgba(255,255,255,.4)'; dot(it.x, it.y, 25);
         item(it.k, it.x, it.y, 1.05); ctx.restore();
-        label(it.n, it.x, it.y + 36, 11);
+        label(it.n, it.x, it.y + 36, 11, '#fff', it.bad ? 'rgba(150,30,30,.9)' : 'rgba(29,13,24,.78)');
       }
-      // carreta
-      const x = S.cart + (S.bump > 0 ? Math.sin(S.bump * 60) * 4 : 0), y = cartY();
-      ctx.fillStyle = 'rgba(40,25,10,.25)'; ctx.beginPath(); ctx.ellipse(x, y + 30, 54, 7, 0, 0, TAU); ctx.fill();
-      ctx.fillStyle = '#6b4324'; ctx.beginPath(); ctx.moveTo(x - 52, y - 12); ctx.lineTo(x + 52, y - 12); ctx.lineTo(x + 42, y + 18); ctx.lineTo(x - 42, y + 18); ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = '#3d2614'; ctx.lineWidth = 2; for (let i = -1; i <= 1; i++) line(x + i * 24, y - 12, x + i * 21, y + 18); line(x - 49, y + 2, x + 49, y + 2);
-      ctx.fillStyle = '#3d2614'; ctx.fillRect(x - 55, y - 15, 110, 5);
-      ctx.fillStyle = '#2a1c14'; [-30, 30].forEach(d => { ctx.beginPath(); ctx.arc(x + d, y + 22, 10, 0, TAU); ctx.fill(); });
-      ctx.fillStyle = '#b89a6a'; [-30, 30].forEach(d => { ctx.beginPath(); ctx.arc(x + d, y + 22, 3.5, 0, TAU); ctx.fill(); });
-      if (S.err) label(`Tropiezos: ${S.err} de 3`, W / 2, TOP + 58, 12, '#fff', 'rgba(150,30,30,.85)');
+      // Tomás y la carretilla de madera
+      const dir = S.side >= 0 ? 1 : -1, x = S.cart + (S.bump > 0 ? Math.sin(S.bump * 60) * 4 : 0), y = cartY();
+      farmer(x - dir * 74, y + 34, 1.22, { face: dir, moving: S.moving, ph: S.ph, t, hand: [26, -46], hand2: [22, -44] });
+      ctx.save(); ctx.translate(x, y); ctx.scale(dir * 1.15, 1.15); ctx.lineCap = 'round';
+      ctx.fillStyle = 'rgba(40,25,10,.25)'; oval(4, 30, 50, 6);
+      ctx.strokeStyle = '#6b4324'; ctx.lineWidth = 4; line(-40, -14, 30, 14); line(-14, 16, -14, 29);
+      ctx.fillStyle = '#8a5d38'; poly([[-36, -14], [48, -14], [34, 16], [-24, 16]]);
+      ctx.strokeStyle = '#5a3a22'; ctx.lineWidth = 1.6; for (let i = 0; i < 3; i++) line(-31 + i * 4, -5 + i * 8, 44 - i * 5, -5 + i * 8);
+      ctx.fillStyle = '#5a3a22'; rr(-38, -18, 88, 5, 2.5); ctx.fill();
+      ctx.save(); ctx.translate(40, 20); ctx.rotate(S.cart / 11); ctx.fillStyle = '#3a2618'; dot(0, 0, 10.5); ctx.fillStyle = '#b89a6a'; dot(0, 0, 7); ctx.strokeStyle = '#3a2618'; ctx.lineWidth = 2; line(-7, 0, 7, 0); line(0, -7, 0, 7); ctx.restore();
+      ctx.restore();
+      if (S.err) label(`Agroquímicos cargados: ${S.err} de 3`, W / 2, TOP + 58, 12, '#fff', 'rgba(150,30,30,.85)');
     },
-    down(x) { S.target = clamp(x, 50, W - 50); },
-    move(x) { S.target = clamp(x, 50, W - 50); }
+    down(x) { S.target = clamp(x, 52, W - 52); },
+    move(x) { S.target = clamp(x, 52, W - 52); }
   };
 }
 
 /* ============================================================
-   Etapa 3. Manejo del viñedo: riego y deshoje
+   Etapa 3. Manejo orgánico: riego por surco y deshoje a mano
    ============================================================ */
 function level3() {
-  const D = 42, LO = .4, HI = .75;
+  const D = 45, LO = .4, HI = .75;
   const S = { t: 0, good: 0, v: [] };
-  for (let i = 0; i < 4; i++) S.v.push({ w: rnd(.5, .65), dec: rnd(.03, .042), leaves: i === 1 ? 1 : 0, next: rnd(3, 7), ph: rnd(0, 6), splash: 0 });
-  function geo(i) { const top = H * .25, cw = (W - 20) / 2, ch = (H - top - 12) / 2; const s = Math.min(cw / 128, ch / 150); return { cx: 10 + cw * (i % 2 + .5), base: top + ch * ((i >> 1) + 1) - 40 * s, cw, ch, s, left: 10 + cw * (i % 2), topY: top + ch * (i >> 1) }; }
+  for (let i = 0; i < 4; i++) S.v.push({ w: rnd(.5, .65), dec: rnd(.028, .038), leaves: i === 1 ? 1 : 0, next: rnd(3, 7), ph: rnd(0, 6), splash: 0 });
+  function geo(i) { const top = H * .25, cw = (W - 20) / 2, ch = (H - top - 12) / 2; const s = Math.min(cw / 128, ch / 150); return { cx: 10 + cw * (i % 2 + .56), base: top + ch * ((i >> 1) + 1) - 40 * s, cw, ch, s, left: 10 + cw * (i % 2), topY: top + ch * (i >> 1) }; }
+  const w = makeWorker(W * .5, H - 20);
   return {
     update(dt) {
-      S.t += dt;
+      S.t += dt; workerUpdate(w, dt, 760, .24);
       for (const v of S.v) {
         v.w = clamp(v.w - v.dec * dt, 0, 1); v.splash = Math.max(0, v.splash - dt);
-        v.next -= dt; if (v.next <= 0) { v.next = rnd(5, 9) - S.t * .04; if (v.leaves < 3) v.leaves++; }
+        v.next -= dt; if (v.next <= 0) { v.next = rnd(5.5, 9.5) - S.t * .03; if (v.leaves < 3) v.leaves++; }
         if (v.w >= LO && v.w <= HI && v.leaves === 0) S.good += dt;
       }
-      const pct = Math.round(100 * S.good / (4 * Math.max(S.t, .01)));
-      hud(1 - S.t / D, pct + ' %');
-      if (S.t >= D) { const r = S.good / (4 * D); endLevel(clamp(r / .8, 0, 1), `Tus parras estuvieron en equilibrio el ${Math.round(r * 100)} % del tiempo.`); }
+      hud(1 - S.t / D, Math.round(100 * S.good / (4 * Math.max(S.t, .01))) + ' %');
+      if (S.t >= D) { const r = S.good / (4 * D); endLevel(clamp(r / .76, 0, 1), `Las parras de Tomás estuvieron en equilibrio el ${Math.round(r * 100)} % del tiempo.`); }
     },
     draw(t) {
-      backdrop(t, 'day', .2, .5);
+      backdrop(t, 'day', .2, .75, true);
+      sheep(W * .16, H * .2 + 30, .7, t); sheep(W * .86, H * .2 + 44, .8, t + 1, -1);
+      const a = acting(w), kind = w.cur && w.cur.kind, fs = geo(0).s * 1.08;
+      let hand, tool = null, toolA = 0;
+      if (a >= 0 && kind === 'water') { tool = 'azadon'; toolA = lerp(-1.25, .75, Math.min(1, a * 1.6)); hand = [15, lerp(-70, -48, Math.min(1, a * 1.6))]; }
+      else if (a >= 0 && kind === 'leaf') hand = toLocal(w.x, w.y, fs, w.face, w.cur.hx, w.cur.hy);
+      else { tool = 'azadon'; toolA = -1.45; hand = [8, -52]; }
+      const man = () => farmer(w.x, w.y, fs, { face: w.face, moving: w.moving, ph: w.ph, t, tool, toolA, hand });
+      let drawn = false;
       S.v.forEach((v, i) => {
         const g = geo(i), s = g.s, dry = v.w < LO, wet = v.w > HI;
-        // suelo
-        ctx.fillStyle = rgb(mix([196, 150, 100], [92, 62, 40], v.w)); ctx.beginPath(); ctx.ellipse(g.cx, g.base + 6 * s, 52 * s, 13 * s, 0, 0, TAU); ctx.fill();
-        if (wet) { ctx.fillStyle = 'rgba(90,170,230,.55)'; ctx.beginPath(); ctx.ellipse(g.cx + 8 * s, g.base + 8 * s, 36 * s * clamp((v.w - HI) * 4, .2, 1), 7 * s, 0, 0, TAU); ctx.fill(); }
-        vine(g.cx, g.base, s * 1.25, t, { ph: v.ph, droop: dry, leaf: dry ? '#9aa24a' : '#4f9a3a', leaf2: dry ? '#8a9040' : '#3f8530' });
-        // racimo y hojas que lo tapan
+        if (!drawn && g.base + 12 * s > w.y) { man(); drawn = true; }
+        // surco de riego
+        ctx.fillStyle = rgb(mix([196, 150, 100], [86, 58, 38], v.w)); oval(g.cx, g.base + 6 * s, 54 * s, 13 * s);
+        ctx.strokeStyle = 'rgba(70,45,25,.5)'; ctx.lineWidth = 3 * s; ctx.beginPath(); ctx.ellipse(g.cx, g.base + 7 * s, 46 * s, 9 * s, 0, .1, Math.PI - .1); ctx.stroke();
+        if (wet || v.splash > 0) { ctx.fillStyle = 'rgba(90,170,230,.6)'; ctx.beginPath(); ctx.ellipse(g.cx, g.base + 8 * s, 44 * s * (wet ? clamp((v.w - HI) * 4, .35, 1) : .5), 6 * s, 0, 0, TAU); ctx.fill(); }
+        ctx.strokeStyle = v.splash > 0 ? '#6cc4f5' : 'rgba(70,45,25,.45)'; ctx.lineWidth = 4 * s; line(g.left + 4, g.base + 12 * s, g.cx - 44 * s, g.base + 9 * s);
+        vine(g.cx, g.base, s * 1.25, t, { ph: v.ph, droop: dry, stake: true, leaves: dry ? ['#9aa24a', '#8a9040', '#a8ae58'] : null });
         const bx = g.cx + 12 * s, by = g.base - 36 * s;
         bunch(bx, by, s * 1.05, [72, 24, 86], v.leaves ? 0 : 1);
         for (let k = 0; k < v.leaves; k++) leaf(bx + [-7, 9, 0][k] * s, by + [6, 14, 24][k] * s, 19 * s, [-.4, .5, .1][k] + Math.sin(t * 2 + k) * .05, ['#2f6d27', '#28632a', '#347a2c'][k]);
-        // gotero
-        ctx.strokeStyle = '#1f1f24'; ctx.lineWidth = 4 * s; line(g.cx - 46 * s, g.base - 8 * s, g.cx + 46 * s, g.base - 8 * s);
-        ctx.fillStyle = '#4a4a55'; ctx.fillRect(g.cx - 26 * s, g.base - 12 * s, 8 * s, 8 * s);
-        if (v.splash > 0) { ctx.fillStyle = '#6cc4f5'; for (let k = 0; k < 3; k++) { const p = ((1 - v.splash / .5) + k * .33) % 1; ctx.beginPath(); ctx.arc(g.cx - 22 * s, g.base - 4 * s + p * 12 * s, 2.6 * s, 0, TAU); ctx.fill(); } }
-        // medidor de humedad
-        const mx = g.left + 12, mh = g.ch * .5, my = g.base - mh + 4;
-        ctx.fillStyle = 'rgba(29,13,24,.75)'; rr(mx - 6, my - 4, 12, mh + 8, 6); ctx.fill();
-        ctx.fillStyle = 'rgba(127,191,90,.85)'; ctx.fillRect(mx - 3, my + mh * (1 - HI), 6, mh * (HI - LO));
+        // medidor de humedad del suelo
+        const mx = g.left + 12, mh = g.ch * .46, my = g.base - mh - 6;
+        ctx.fillStyle = 'rgba(29,13,24,.78)'; rr(mx - 6, my - 4, 12, mh + 8, 6); ctx.fill();
+        ctx.fillStyle = 'rgba(127,191,90,.9)'; ctx.fillRect(mx - 3, my + mh * (1 - HI), 6, mh * (HI - LO));
         ctx.fillStyle = dry ? '#ffb199' : wet ? '#7fc8f8' : '#fff'; ctx.fillRect(mx - 6, my + mh * (1 - v.w) - 2, 12, 4);
-        // estado
-        const st = v.leaves ? 'Racimo a la sombra' : dry ? 'Suelo seco' : wet ? 'Exceso de agua' : 'En equilibrio';
-        const okc = !v.leaves && !dry && !wet;
-        label(st, g.cx, g.base + 28 * s, 11, '#fff', okc ? 'rgba(60,110,45,.92)' : 'rgba(150,40,40,.9)');
+        const st = v.leaves ? 'Racimo a la sombra' : dry ? 'Suelo seco' : wet ? 'Exceso de agua' : 'En equilibrio', okc = !v.leaves && !dry && !wet;
+        label(st, g.cx, g.base + 30 * s, 11, '#fff', okc ? 'rgba(60,110,45,.92)' : 'rgba(150,40,40,.9)');
       });
+      if (!drawn) man();
     },
     down(x, y) {
       for (let i = 0; i < 4; i++) {
-        const g = geo(i), v = S.v[i];
+        const g = geo(i), v = S.v[i], s = g.s;
         if (x >= g.left && x < g.left + g.cw && y >= g.topY && y < g.topY + g.ch) {
-          if (y < g.base - 14 * g.s) {
-            if (v.leaves > 0) { v.leaves--; sfx.tap(); fx.burst(x, y, '#3f8530', 7); fx.text(x, y - 16, 'Deshoje', GOOD); }
-          } else { v.w = clamp(v.w + .2, 0, 1); v.splash = .5; sfx.drop(); fx.text(g.cx, g.base - 20 * g.s, v.w > HI ? 'Demasiada agua' : 'Riego', v.w > HI ? BAD : '#bfe6ff'); }
+          if (w.q.length >= 4) return;
+          fx.ring(x, y); sfx.tap();
+          if (y < g.base - 14 * s) {
+            if (v.leaves <= 0) return;
+            const bx = g.cx + 12 * s, by = g.base - 30 * s;
+            w.q.push({ kind: 'leaf', x: g.cx - 14 * s, y: g.base + 10 * s, face: 1, hx: bx, hy: by, done: () => { if (v.leaves > 0) { v.leaves--; sfx.ok(); fx.burst(bx, by, '#3f8530', 7); fx.text(bx, by - 26, 'Deshoje', GOOD); } } });
+          } else {
+            w.q.push({ kind: 'water', x: g.cx - 50 * s, y: g.base + 12 * s, face: 1, done: () => { v.w = clamp(v.w + .2, 0, 1); v.splash = .6; sfx.drop(); fx.text(g.cx, g.base - 16 * s, v.w > HI ? 'Demasiada agua' : 'Riego', v.w > HI ? BAD : '#bfe6ff'); } });
+          }
           return;
         }
       }
@@ -790,135 +1014,153 @@ function level3() {
 }
 
 /* ============================================================
-   Etapa 4. Vendimia: cosechar en el punto de madurez
+   Etapa 4. Vendimia a mano en el punto de madurez
    ============================================================ */
 function ripeColor(r) {
   const G = [140, 190, 74], P = [200, 92, 140], V = [58, 18, 70], B = [96, 62, 44];
   if (r < .35) return G; if (r < .58) return mix(G, P, (r - .35) / .23); if (r < .75) return mix(P, V, (r - .58) / .17); if (r <= 1) return V; return mix(V, B, clamp((r - 1) / .2, 0, 1));
 }
 function level4() {
-  const D = 50, MONTHS = ['Febrero', 'Marzo', 'Abril', 'Mayo'];
+  const D = 52, MONTHS = ['Febrero', 'Marzo', 'Abril', 'Mayo'];
   const S = { t: 0, b: [], sum: 0, n: 0, fly: [], end: false };
   for (let i = 0; i < 12; i++) {
     const row = i / 4 | 0, mer = row === 0;
-    S.b.push({ row, col: i % 4, mer, t0: mer ? rnd(0, 4) : rnd(15, 23), d: mer ? rnd(16, 20) : rnd(19, 24), state: 0, ph: rnd(0, 6) });
+    S.b.push({ row, col: i % 4, mer, t0: mer ? rnd(0, 4) : rnd(15, 23), d: mer ? rnd(17, 21) : rnd(20, 25), state: 0, queued: false, ph: rnd(0, 6) });
   }
   const rip = b => (S.t - b.t0) / b.d;
-  function geo(b) { const top = H * .34, rh = (H - top - 96) / 3; return { x: W * (.17 + .22 * b.col), y: top + rh * b.row + 26, wy: top + rh * b.row, s: Math.min(1.3, rh / 78) }; }
-  const basket = () => ({ x: W / 2, y: H - 44 });
+  const rowH = () => (H - H * .34 - 96) / 3;
+  function geo(b) { const top = H * .34, rh = rowH(); return { x: W * (.2 + .2 * b.col), y: top + rh * b.row + 26, wy: top + rh * b.row, gy: top + rh * (b.row + 1) - 10, s: Math.min(1.3, rh / 78) }; }
+  const bk = () => ({ x: W / 2, y: H - 44 });
+  const w = makeWorker(W * .5, geo({ row: 0, col: 0 }).gy);
+  function cut(b) {
+    b.queued = false; if (b.state) return;
+    const g = geo(b), r = rip(b); b.state = 1; S.n++;
+    let q, msg, col;
+    if (r < .5) { q = 0; msg = 'Muy verde'; col = BAD; } else if (r < .75) { q = .3; msg = 'Falta sol: pimentón verde'; col = BAD; }
+    else if (r <= 1) { q = 1; msg = 'En su punto'; col = GOOD; } else { q = .4; msg = 'Sobremadura'; col = GOLD; }
+    b.q = q; S.sum += q; q === 1 ? sfx.ok() : sfx.bad();
+    fx.text(g.x, g.y - 14, msg, col); S.fly.push({ x: g.x, y: g.y, p: 0, c: ripeColor(r) });
+  }
   return {
     update(dt) {
-      S.t += dt;
+      S.t += dt; workerUpdate(w, dt, 760, .22);
       for (const b of S.b) if (b.state === 0 && rip(b) > 1.25) { b.state = 2; S.n++; const g = geo(b); fx.text(g.x, g.y, 'Se perdió', BAD); }
       for (const f of S.fly) f.p += dt * 2.2;
       S.fly = S.fly.filter(f => f.p < 1);
       hud(1 - S.t / D, `${Math.round(S.sum * 100)} pts`);
-      if (!S.end && (S.t >= D || S.n >= 12)) { S.end = true; endLevel(clamp(S.sum / 12, 0, 1), `Cosechaste ${S.b.filter(b => b.q === 1).length} de 12 racimos en su punto exacto de madurez.`); }
+      if (!S.end && (S.t >= D || S.n >= 12)) { S.end = true; endLevel(clamp(S.sum / 12, 0, 1), `Tomás cosechó ${S.b.filter(b => b.q === 1).length} de 12 racimos en su punto exacto de madurez.`); }
     },
     draw(t) {
-      backdrop(t, 'autumn', .27, .5);
-      // calendario
+      backdrop(t, 'autumn', .27, .7, true);
       const mw = (W - 24) / 4, mp = clamp(S.t / D, 0, 1);
-      ctx.fillStyle = 'rgba(29,13,24,.8)'; rr(12, TOP + 6, W - 24, 30, 8); ctx.fill();
-      ctx.fillStyle = 'rgba(207,47,74,.75)'; rr(12, TOP + 6, Math.max(16, (W - 24) * mp), 30, 8); ctx.fill();
+      ctx.fillStyle = 'rgba(29,13,24,.82)'; rr(12, TOP + 6, W - 24, 30, 8); ctx.fill();
+      ctx.fillStyle = 'rgba(207,47,74,.78)'; rr(12, TOP + 6, Math.max(16, (W - 24) * mp), 30, 8); ctx.fill();
       MONTHS.forEach((m, i) => txt(m, 12 + mw * (i + .5), TOP + 21, 12, '#fff'));
-      const turn = clamp((S.t - 30) / 15, 0, 1);
+      const turn = clamp((S.t - 30) / 15, 0, 1), fs = Math.min(1.3, rowH() / 104), a = acting(w);
       for (let row = 0; row < 3; row++) {
         const g = geo({ row, col: 0 }), mer = row === 0;
-        ctx.strokeStyle = '#6b4a2f'; ctx.lineWidth = 5; line(8, g.wy - 10, 8, g.wy + 60); line(W - 8, g.wy - 10, W - 8, g.wy + 60);
+        ctx.fillStyle = 'rgba(40,25,10,.16)'; oval(W / 2, g.gy + 2, W * .5, 7);
+        ctx.fillStyle = '#8a6a44'; [10, W * .5, W - 10].forEach(px => ctx.fillRect(px - 3, g.wy - 12, 6, g.gy - g.wy + 12));
         ctx.strokeStyle = '#d5d9dc'; ctx.lineWidth = 1.5; line(8, g.wy, W - 8, g.wy);
+        ctx.strokeStyle = '#5a3d27'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+        for (let c = 0; c < 4; c++) { const vx = W * (.2 + .2 * c) + 18; ctx.beginPath(); ctx.moveTo(vx, g.gy); ctx.quadraticCurveTo(vx - 7, (g.gy + g.wy) / 2, vx - 2, g.wy + 2); ctx.stroke(); }
         const lc = mer ? [79, 154, 58] : mix([79, 154, 58], [190, 52, 46], turn);
         for (let k = 0; k < 11; k++) leaf(W * (.06 + k * .088), g.wy + (k % 2 ? 4 : -3), 15 * g.s, Math.sin(t * 1.3 + k + row) * .1 * MS + (k % 3 - 1) * .4, rgb(mix(lc, [0, 0, 0], (k % 2) * .12)));
         label(mer ? 'Merlot' : 'Carménère', 12 + (mer ? 30 : 42), g.wy - 20, 11, '#fff', mer ? 'rgba(29,13,24,.8)' : 'rgba(207,47,74,.92)');
+        for (const b of S.b) {
+          if (b.row !== row || b.state) continue;
+          const bg = geo(b), r = rip(b), ready = r >= .75 && r <= 1;
+          bunch(bg.x + Math.sin(t * 1.6 + b.ph) * 1.5 * MS, bg.y, bg.s * 1.15, ripeColor(r), ready ? 1 : 0, clamp((r - 1) / .25, 0, 1));
+          if (b.queued) { ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 2; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.arc(bg.x, bg.y + 16 * bg.s, 27 * bg.s, 0, TAU); ctx.stroke(); ctx.setLineDash([]); }
+        }
+        if (Math.abs(w.y - g.gy) < rowH() / 2) farmer(w.x, w.y, fs, { face: w.face, moving: w.moving, ph: w.ph, t, tool: 'tijera', toolA: a >= 0 ? Math.sin(a * Math.PI) : 0, hand: a >= 0 && w.cur ? toLocal(w.x, w.y, fs, w.face, w.cur.hx, w.cur.hy) : [10, -56] });
       }
-      for (const b of S.b) {
-        if (b.state) continue;
-        const g = geo(b), r = rip(b), ready = r >= .75 && r <= 1;
-        bunch(g.x + Math.sin(t * 1.6 + b.ph) * 1.5 * MS, g.y, g.s * 1.15, ripeColor(r), ready ? 1 : 0, clamp((r - 1) / .25, 0, 1));
-      }
-      const k = basket();
+      const k = bk();
+      basket(k.x, k.y, 1);
+      txt(`${S.b.filter(b => b.state === 1).length} racimos`, k.x, k.y + 8, 13, '#fff', 'center', 800);
       for (const f of S.fly) { const x = lerp(f.x, k.x, f.p), y = lerp(f.y, k.y - 20, f.p) - Math.sin(f.p * Math.PI) * 70; bunch(x, y, 1 - f.p * .3, f.c, 1); }
-      // canasto
-      ctx.fillStyle = '#8a5a2b'; ctx.beginPath(); ctx.moveTo(k.x - 46, k.y - 16); ctx.lineTo(k.x + 46, k.y - 16); ctx.lineTo(k.x + 36, k.y + 24); ctx.lineTo(k.x - 36, k.y + 24); ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = '#5f3c1a'; ctx.lineWidth = 2; for (let i = 0; i < 3; i++) line(k.x - 44 + i * 3, k.y - 6 + i * 10, k.x + 44 - i * 3, k.y - 6 + i * 10);
-      ctx.fillStyle = '#5f3c1a'; ctx.fillRect(k.x - 49, k.y - 19, 98, 6);
-      txt(`${S.b.filter(b => b.state === 1).length} racimos`, k.x, k.y + 5, 13, '#fff', 'center', 800);
     },
     down(x, y) {
-      let best = null, bd = 44;
-      for (const b of S.b) { if (b.state) continue; const g = geo(b), d = Math.hypot(x - g.x, y - (g.y + 16 * g.s)); if (d < bd) { bd = d; best = b; } }
-      if (!best) return;
-      const g = geo(best), r = rip(best); best.state = 1; S.n++;
-      let q, msg, col;
-      if (r < .5) { q = 0; msg = 'Muy verde'; col = BAD; } else if (r < .75) { q = .3; msg = 'Falta sol: pimentón verde'; col = BAD; }
-      else if (r <= 1) { q = 1; msg = 'En su punto'; col = GOOD; } else { q = .4; msg = 'Sobremadura'; col = GOLD; }
-      best.q = q; S.sum += q; q === 1 ? sfx.ok() : sfx.bad();
-      fx.text(g.x, g.y - 14, msg, col); S.fly.push({ x: g.x, y: g.y, p: 0, c: ripeColor(r) });
+      let best = null, bd = 46;
+      for (const b of S.b) { if (b.state || b.queued) continue; const g = geo(b), d = Math.hypot(x - g.x, y - (g.y + 16 * g.s)); if (d < bd) { bd = d; best = b; } }
+      if (!best || w.q.length >= 4) return;
+      const g = geo(best); best.queued = true; fx.ring(g.x, g.y + 14 * g.s); sfx.tap();
+      w.q.push({ x: g.x - 26 * Math.min(1.3, rowH() / 104), y: g.gy, face: 1, hx: g.x - 2, hy: g.y - 8, done: () => cut(best) });
     }
   };
 }
 
 /* ============================================================
-   Etapa 5. Mesa de selección
+   Etapa 5. Selección a mano sobre la zaranda
    ============================================================ */
 function sortItem(k, x, y, t) {
   if (k === 'uva') bunch(x, y - 14, 1.15, [66, 22, 84], 1);
   else if (k === 'verde') bunch(x, y - 14, 1.15, [150, 196, 80], .6);
-  else if (k === 'podrida') { bunch(x, y - 14, 1.15, [112, 96, 84], 0, .6); ctx.fillStyle = 'rgba(215,215,205,.75)'; [[-7, -8], [5, 0], [-2, 10], [8, -12]].forEach(p => { ctx.beginPath(); ctx.arc(x + p[0], y + p[1], 3.4, 0, TAU); ctx.fill(); }); }
+  else if (k === 'podrida') { bunch(x, y - 14, 1.15, [112, 96, 84], 0, .6); ctx.fillStyle = 'rgba(215,215,205,.78)'; [[-7, -8], [5, 0], [-2, 10], [8, -12]].forEach(p => dot(x + p[0], y + p[1], 3.4)); }
   else if (k === 'hoja') leaf(x, y, 21, Math.sin(t + x) * .3, '#4f9a3a');
   else if (k === 'escobajo') {
-    ctx.strokeStyle = '#7b8a3e'; ctx.lineWidth = 3; ctx.lineCap = 'round'; line(x, y - 20, x, y + 18);
+    ctx.strokeStyle = '#8a9a44'; ctx.lineWidth = 3; ctx.lineCap = 'round'; line(x, y - 20, x, y + 18);
     [[-12, -8, -2], [12, -3, 4], [-10, 6, 12], [9, 10, 16]].forEach(p => line(x, y + p[1], x + p[0], y + p[2]));
   }
 }
 function level5() {
   const D = 38, NAMES = { hoja: 'Hoja', escobajo: 'Escobajo', verde: 'Uva verde', podrida: 'Pudrición' };
-  const S = { t: 0, items: [], next: .4, bad: 0, removed: 0, wrong: 0, missed: 0, end: false, lastLane: -1 };
-  const belt = () => ({ x: W * .08, w: W * .84, y: TOP + 12, b: H - 92 });
+  const S = { t: 0, items: [], next: .4, bad: 0, removed: 0, wrong: 0, missed: 0, end: false, lastLane: -1, poke: 0, px: 0, py: 0 };
+  const belt = () => ({ x: W * .31, w: W * .64, y: TOP + 12, b: H - 100 });
+  const laneX = (B, l) => B.x + B.w * (l * 2 + 1) / 6;
   return {
     update(dt) {
-      S.t += dt; const B = belt(), sp = lerp(105, 180, clamp(S.t / D, 0, 1));
+      S.t += dt; S.poke = Math.max(0, S.poke - dt); const B = belt(), sp = lerp(105, 180, clamp(S.t / D, 0, 1));
       S.next -= dt;
       if (S.next <= 0 && S.t < D - 2.5) {
         S.next = lerp(.62, .38, S.t / D);
         let lane; do { lane = Math.floor(Math.random() * 3); } while (lane === S.lastLane); S.lastLane = lane;
         const good = Math.random() < .55, k = good ? 'uva' : pick(['hoja', 'escobajo', 'verde', 'podrida']);
         if (!good) S.bad++;
-        S.items.push({ k, good, lane, y: B.y - 20, out: 0, dir: lane === 0 ? -1 : lane === 2 ? 1 : (Math.random() < .5 ? -1 : 1) });
+        S.items.push({ k, good, lane, y: B.y - 20, out: 0 });
       }
       for (const it of S.items) {
         if (it.out > 0) { it.out += dt * 3; continue; }
         it.y += sp * dt;
-        if (it.y > B.b - 6) { it.gone = true; if (!it.good) { S.missed++; sfx.bad(); fx.text(B.x + B.w * (it.lane * 2 + 1) / 6, B.b - 24, 'Se coló: ' + NAMES[it.k], BAD); } }
+        if (it.y > B.b - 6) { it.gone = true; if (!it.good) { S.missed++; sfx.bad(); fx.text(laneX(B, it.lane), B.b - 24, 'Se coló: ' + NAMES[it.k], BAD); } }
       }
       S.items = S.items.filter(it => !it.gone && it.out < 1);
       hud(1 - S.t / D, `${S.removed}/${S.bad}`);
-      if (!S.end && S.t > D - 2 && !S.items.length) { S.end = true; endLevel(clamp((S.removed - .6 * S.wrong) / Math.max(1, S.bad), 0, 1), `Retiraste ${S.removed} de ${S.bad} impurezas y descartaste ${S.wrong} ${S.wrong === 1 ? 'racimo sano' : 'racimos sanos'} por error.`); }
+      if (!S.end && S.t > D - 2 && !S.items.length) { S.end = true; endLevel(clamp((S.removed - .6 * S.wrong) / Math.max(1, S.bad), 0, 1), `Tomás apartó ${S.removed} de ${S.bad} impurezas y descartó ${S.wrong} ${S.wrong === 1 ? 'racimo sano' : 'racimos sanos'} por error.`); }
     },
     draw(t) {
-      cellar(t); const B = belt(), sp = lerp(105, 180, clamp(S.t / D, 0, 1));
-      ctx.fillStyle = '#5c6068'; rr(B.x - 8, B.y - 6, B.w + 16, B.b - B.y + 12, 10); ctx.fill();
-      ctx.fillStyle = '#2c2f36'; ctx.fillRect(B.x, B.y, B.w, B.b - B.y);
-      ctx.save(); ctx.beginPath(); ctx.rect(B.x, B.y, B.w, B.b - B.y); ctx.clip();
-      ctx.strokeStyle = 'rgba(255,255,255,.07)'; ctx.lineWidth = 3;
-      const off = (S.t * sp) % 34; for (let y = B.y - 34 + off; y < B.b; y += 34) line(B.x, y, B.x + B.w, y);
+      cellar(t); const B = belt();
+      // Tomás, de pie junto a la mesa con su vara de coligüe
+      const fs = clamp(H / 470, 1.1, 1.6), fxp = W * .15, fyp = B.b + 70;
+      const tip = S.poke > 0 ? [S.px, S.py] : [B.x + 14, B.b - 70];
+      farmer(fxp, fyp, fs, { face: 1, t, apron: true, tool: 'vara', tip: toLocal(fxp, fyp, fs, 1, tip[0], tip[1]), hand: toLocal(fxp, fyp, fs, 1, lerp(fxp + 22 * fs, tip[0], .3), lerp(fyp - 62 * fs, tip[1], .3)) });
+      // mesa de selección de madera
+      ctx.fillStyle = '#5a3a22'; rr(B.x - 9, B.y - 6, B.w + 18, B.b - B.y + 12, 8); ctx.fill();
+      const g = ctx.createLinearGradient(B.x, 0, B.x + B.w, 0); g.addColorStop(0, '#a87848'); g.addColorStop(.5, '#c09058'); g.addColorStop(1, '#9a6c40');
+      ctx.fillStyle = g; ctx.fillRect(B.x, B.y, B.w, B.b - B.y);
+      ctx.strokeStyle = 'rgba(70,40,15,.4)'; ctx.lineWidth = 1.5; for (let i = 1; i < 6; i++) line(B.x + B.w * i / 6, B.y, B.x + B.w * i / 6, B.b);
+      ctx.strokeStyle = 'rgba(70,40,15,.16)'; ctx.lineWidth = 1; for (let i = 0; i < 22; i++) { const gx = B.x + (i * 53 % 100) / 100 * B.w, gy = B.y + (i * 37 % 100) / 100 * (B.b - B.y - 30); line(gx, gy, gx, gy + 26); }
+      ctx.save(); ctx.beginPath(); ctx.rect(B.x - 60, B.y, B.w + 120, B.b - B.y); ctx.clip();
       for (const it of S.items) {
-        const x = B.x + B.w * (it.lane * 2 + 1) / 6 + it.out * it.dir * W * .5;
-        ctx.globalAlpha = 1 - it.out; ctx.save(); ctx.translate(x, it.y); ctx.rotate(it.out * it.dir * 2); sortItem(it.k, 0, 0, t); ctx.restore();
+        const x = laneX(B, it.lane) + it.out * W * .5;
+        ctx.globalAlpha = 1 - it.out; ctx.fillStyle = 'rgba(50,25,10,.25)'; oval(x, it.y + 20, 20, 5);
+        ctx.save(); ctx.translate(x, it.y); ctx.rotate(it.out * 2); sortItem(it.k, 0, 0, t); ctx.restore();
       }
       ctx.globalAlpha = 1; ctx.restore();
-      // despalilladora
-      ctx.fillStyle = '#8d9399'; ctx.beginPath(); ctx.moveTo(B.x - 12, B.b - 4); ctx.lineTo(B.x + B.w + 12, B.b - 4); ctx.lineTo(B.x + B.w - 18, B.b + 50); ctx.lineTo(B.x + 18, B.b + 50); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = '#6d737a'; ctx.fillRect(B.x - 12, B.b - 4, B.w + 24, 8);
-      ctx.strokeStyle = '#555b62'; ctx.lineWidth = 3; for (let i = 0; i < 7; i++) { const x = B.x + 30 + i * (B.w - 60) / 6, a = t * 5 + i; line(x - Math.cos(a) * 9, B.b + 24 - Math.sin(a) * 9, x + Math.cos(a) * 9, B.b + 24 + Math.sin(a) * 9); }
-      txt('DESPALILLADORA', W / 2, B.b + 66, 11, '#c3aab6', 'center', 800);
-      if (S.missed) label(`Impurezas en la cuba: ${S.missed}`, W / 2, B.y + 18, 12, '#fff', 'rgba(150,30,30,.85)');
+      // zaranda de cañas sobre el lagar
+      ctx.fillStyle = '#4a2d1a'; poly([[B.x - 14, B.b - 4], [B.x + B.w + 14, B.b - 4], [B.x + B.w + 4, B.b + 52], [B.x - 4, B.b + 52]]);
+      ctx.fillStyle = '#2a1410'; ctx.fillRect(B.x - 4, B.b + 4, B.w + 8, 30);
+      ctx.strokeStyle = '#d9c27a'; ctx.lineWidth = 3; for (let i = 0; i <= 9; i++) line(B.x - 4 + (B.w + 8) * i / 9, B.b + 4, B.x - 4 + (B.w + 8) * i / 9, B.b + 34);
+      ctx.strokeStyle = '#c4ac62'; for (let i = 0; i < 3; i++) line(B.x - 4, B.b + 9 + i * 10, B.x + B.w + 4, B.b + 9 + i * 10);
+      ctx.fillStyle = '#6b4526'; ctx.fillRect(B.x - 14, B.b - 6, B.w + 28, 8);
+      txt('ZARANDA', B.x + B.w / 2, B.b + 66, 11, '#e0c9a8', 'center', 800);
+      if (S.missed) label(`Impurezas en el lagar: ${S.missed}`, B.x + B.w / 2, B.y + 18, 12, '#fff', 'rgba(150,30,30,.85)');
     },
     down(x, y) {
       const B = belt(); let best = null, bd = 42;
-      for (const it of S.items) { if (it.out > 0) continue; const ix = B.x + B.w * (it.lane * 2 + 1) / 6, d = Math.hypot(x - ix, y - it.y); if (d < bd) { bd = d; best = it; } }
+      for (const it of S.items) { if (it.out > 0) continue; const d = Math.hypot(x - laneX(B, it.lane), y - it.y); if (d < bd) { bd = d; best = it; } }
       if (!best) return;
-      best.out = .01;
+      best.out = .01; S.poke = .22; S.px = laneX(B, best.lane); S.py = best.y;
       if (best.good) { S.wrong++; sfx.bad(); fx.text(x, y - 20, 'Era uva sana', BAD); }
       else { S.removed++; sfx.ok(); fx.text(x, y - 20, 'Fuera: ' + NAMES[best.k], GOOD); }
     }
@@ -926,12 +1168,12 @@ function level5() {
 }
 
 /* ============================================================
-   Etapa 6. Fermentación
+   Etapa 6. Fermentación en lagar de raulí con pisoneo
    ============================================================ */
 function level6() {
   const MAXT = 60;
   const S = { t: 0, T: 21, p: 0, q: 0, cap: .2, cool: false, pump: 0, bub: [], end: false };
-  setControls('<button class="btn" id="bCool" type="button">Enfriar</button><button class="btn" id="bPump" type="button">Remontaje</button>');
+  setControls('<button class="btn" id="bCool" type="button">Refrescar</button><button class="btn" id="bPump" type="button">Pisoneo</button>');
   holdButton('#bCool', v => { S.cool = v; if (v) sfx.tap(); });
   elControls.querySelector('#bPump').addEventListener('click', () => { if (S.pump <= 0 && !S.end) { S.pump = 1.8; sfx.drop(); } });
   for (let i = 0; i < 26; i++) S.bub.push({ x: Math.random(), y: Math.random(), r: rnd(1.5, 4), v: rnd(.25, .6) });
@@ -943,7 +1185,7 @@ function level6() {
       S.T = clamp(S.T + (heat - (S.cool ? 3.4 : 0)) * dt, 14, 38);
       const inBand = S.T >= 24 && S.T <= 28, far = S.T < 20 || S.T > 32;
       S.p += dt / 36 * (inBand ? 1 : far ? .25 : .6);
-      if (S.pump > 0) { S.pump -= dt; if (S.pump <= 0) { S.cap = 0; fx.text(W / 2, H * .34, 'Sombrero húmedo', GOOD); } } else S.cap = Math.min(1, S.cap + dt / 9);
+      if (S.pump > 0) { S.pump -= dt; if (S.pump <= 0) { S.cap = 0; sfx.ok(); fx.text(W / 2, H * .4, 'Sombrero húmedo', GOOD); } } else S.cap = Math.min(1, S.cap + dt / 9);
       S.q += dt * (inBand ? 1 : (S.T < 22 || S.T > 30) ? 0 : .4) * (S.cap < .7 ? 1 : .5);
       for (const b of S.bub) { b.y -= b.v * dt * (inBand ? 1.4 : .6); if (b.y < 0) { b.y = 1; b.x = Math.random(); } }
       hud(S.p, Math.round(100 * S.q / S.t) + ' %');
@@ -951,61 +1193,65 @@ function level6() {
     },
     draw(t) {
       cellar(t);
-      const tw = W * .52, tx = W * .42 - tw / 2, ty = TOP + 78, th = H - BOT - ty - 60;
-      // cuba
-      const sg = ctx.createLinearGradient(tx, 0, tx + tw, 0); sg.addColorStop(0, '#7d848c'); sg.addColorStop(.3, '#d5dade'); sg.addColorStop(.7, '#a9b0b6'); sg.addColorStop(1, '#6d737a');
-      ctx.fillStyle = '#4a4f55'; ctx.fillRect(tx + 10, ty + th, 10, 30); ctx.fillRect(tx + tw - 20, ty + th, 10, 30);
-      ctx.fillStyle = sg; rr(tx, ty, tw, th, 16); ctx.fill();
-      ctx.fillStyle = '#8d9399'; ctx.beginPath(); ctx.ellipse(tx + tw / 2, ty + 2, tw / 2, 12, 0, 0, TAU); ctx.fill();
+      const tw = W * .52, tx = W * .47 - tw / 2, ty = TOP + Math.min(184, H * .27), th = H - BOT - ty - 34;
+      const ix = tx + 16, iw = tw - 32, iy = ty + 20, ih = th - 40, my = iy + ih * .1, capH = ih * .17;
+      // Tomás, sobre una tarima detrás del lagar
+      const fs = clamp((ty - TOP - 60) / 80, 1, 1.55), px = tx + 40, py = ty + 40 * fs, osc = S.pump > 0 ? Math.sin(S.pump * 9) : 0;
+      const pisY = my + capH * .5 + osc * capH * .9;
+      if (S.cool) farmer(px, py, fs, { face: 1, t, apron: true, noShadow: true, tool: 'balde', toolA: .9 + Math.sin(t * 8) * .1, hand: [22, -62] });
+      else farmer(px, py, fs, { face: 1, t, apron: true, noShadow: true, tool: 'pison', tipY: (pisY - py) / fs, hand: [20, -70 + osc * 9], hand2: [17, -56 + osc * 9] });
+      // lagar de madera
+      ctx.fillStyle = 'rgba(0,0,0,.35)'; oval(tx + tw / 2, ty + th + 2, tw * .52, 8);
+      const sg = ctx.createLinearGradient(tx, 0, tx + tw, 0); sg.addColorStop(0, '#5a3a22'); sg.addColorStop(.3, '#b07d4c'); sg.addColorStop(.7, '#8a5d38'); sg.addColorStop(1, '#4f311c');
+      ctx.fillStyle = sg; poly([[tx, ty], [tx + tw, ty], [tx + tw - tw * .05, ty + th], [tx + tw * .05, ty + th]]);
+      ctx.strokeStyle = 'rgba(50,28,12,.45)'; ctx.lineWidth = 1.5; for (let i = 1; i < 11; i++) line(tx + tw * i / 11, ty, tx + tw * .05 + tw * .9 * i / 11, ty + th);
+      ctx.fillStyle = '#2f221c'; [.12, .5, .88].forEach(f => { const inset = tw * .05 * f; ctx.fillRect(tx + inset - 2, ty + th * f - 4, tw - inset * 2 + 4, 8); });
+      ctx.fillStyle = '#3d2614'; oval(tx + tw / 2, ty, tw / 2, 9);
       // corte con el mosto
-      const ix = tx + 14, iw = tw - 28, iy = ty + 26, ih = th - 44;
       ctx.save(); rr(ix, iy, iw, ih, 10); ctx.clip();
       ctx.fillStyle = '#1b0d14'; ctx.fillRect(ix, iy, iw, ih);
-      const my = iy + ih * .14, capH = ih * .16;
       ctx.fillStyle = '#6a1235'; ctx.fillRect(ix, my, iw, ih);
-      ctx.fillStyle = 'rgba(255,200,220,.5)'; for (const b of S.bub) { ctx.beginPath(); ctx.arc(ix + b.x * iw, my + capH + b.y * (ih * .86 - capH), b.r, 0, TAU); ctx.fill(); }
+      ctx.fillStyle = 'rgba(255,200,220,.5)'; for (const b of S.bub) dot(ix + b.x * iw, my + capH + b.y * (ih * .9 - capH), b.r);
       const capc = mix([58, 14, 44], [150, 104, 96], S.cap);
       ctx.fillStyle = rgb(capc); ctx.beginPath(); ctx.moveTo(ix, my + capH);
       for (let x = 0; x <= iw; x += 8) ctx.lineTo(ix + x, my + Math.sin(x * .2 + t * 2) * 2.5 * MS - 3); ctx.lineTo(ix + iw, my + capH); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = rgb(mix(capc, [0, 0, 0], .3)); for (let i = 0; i < 16; i++) { ctx.beginPath(); ctx.arc(ix + (i * 37 % 100) / 100 * iw, my + 4 + (i * 53 % 100) / 100 * (capH - 8), 3.2, 0, TAU); ctx.fill(); }
-      if (S.pump > 0) { ctx.fillStyle = '#b3305e'; for (let i = 0; i < 14; i++) { const p = (t * 1.6 + i / 14) % 1; ctx.beginPath(); ctx.arc(ix + 8 + p * (iw - 16), iy + 6 + Math.sin(p * Math.PI) * -4 + p * p * (my - iy - 6), 3, 0, TAU); ctx.fill(); } }
+      ctx.fillStyle = rgb(mix(capc, [0, 0, 0], .3)); for (let i = 0; i < 16; i++) dot(ix + (i * 37 % 100) / 100 * iw, my + 4 + (i * 53 % 100) / 100 * (capH - 8), 3.2);
+      if (!S.cool) { const hx = px + 20 * fs; ctx.strokeStyle = '#9a7448'; ctx.lineWidth = 4; line(hx, iy, hx, pisY); ctx.fillStyle = '#6f4c30'; ctx.fillRect(hx - 11, pisY, 22, 6); if (S.pump > 0) { ctx.fillStyle = '#b3305e'; for (let i = 0; i < 5; i++) dot(hx + Math.sin(t * 9 + i * 1.3) * 16, pisY - 4 - Math.abs(Math.cos(t * 7 + i)) * 12, 2.6); } }
       ctx.restore();
-      ctx.strokeStyle = '#555b62'; ctx.lineWidth = 3; rr(ix, iy, iw, ih, 10); ctx.stroke();
-      if (S.pump > 0) { ctx.strokeStyle = '#7a1630'; ctx.lineWidth = 6; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(tx + 6, ty + th - 14); ctx.lineTo(tx - 12, ty + th - 14); ctx.lineTo(tx - 12, ty - 8); ctx.quadraticCurveTo(tx - 12, ty - 22, tx + 14, iy + 4); ctx.stroke(); }
-      txt('Sombrero', ix + iw / 2, my + capH / 2, 12, S.cap >= .7 ? '#ffd774' : 'rgba(255,255,255,.75)');
-      if (S.cap >= .7 && S.pump <= 0) label('Sombrero seco: haz un remontaje', W / 2, ty - 18, 12, '#fff', 'rgba(150,30,30,.9)');
+      ctx.strokeStyle = '#3d2614'; ctx.lineWidth = 3; rr(ix, iy, iw, ih, 10); ctx.stroke();
+      txt('Sombrero', ix + iw * .62, my + capH / 2, 12, S.cap >= .7 ? '#ffd774' : 'rgba(255,255,255,.78)');
+      if (S.cool) { ctx.fillStyle = 'rgba(120,200,255,.18)'; poly([[tx, ty], [tx + tw, ty], [tx + tw - tw * .05, ty + th], [tx + tw * .05, ty + th]]); ctx.fillStyle = '#8fd4fa'; for (let i = 0; i < 9; i++) { const dx = tx + 6 + (i * 29 % 100) / 100 * (tw - 12), p = (t * .9 + i * .37) % 1; if (dx > ix - 2 && dx < ix + iw + 2 && p > .1 && p < .9) continue; rr(dx, ty + 6 + p * (th - 20), 3, 9, 1.5); ctx.fill(); } }
+      if (S.cap >= .7 && S.pump <= 0) label('Sombrero seco: hace falta pisoneo', W / 2, TOP + 66, 12, '#fff', 'rgba(150,30,30,.9)');
       // termómetro
-      const gx = tx + tw + W * .12, gy = ty + 10, gh = th - 20, T2y = T => gy + gh * (1 - (T - 16) / 20);
-      ctx.fillStyle = 'rgba(29,13,24,.85)'; rr(gx - 16, gy - 12, 32, gh + 24, 16); ctx.fill();
-      ctx.fillStyle = 'rgba(127,191,90,.8)'; ctx.fillRect(gx - 12, T2y(28), 24, T2y(24) - T2y(28));
+      const gx = tx + tw + (W - tx - tw) / 2, gy = ty + 6, gh = th - 26, T2y = T => gy + gh * (1 - (T - 16) / 20);
+      ctx.fillStyle = 'rgba(29,13,24,.85)'; rr(gx - 16, gy - 12, 32, gh + 30, 16); ctx.fill();
+      ctx.fillStyle = 'rgba(127,191,90,.85)'; ctx.fillRect(gx - 12, T2y(28), 24, T2y(24) - T2y(28));
       ctx.fillStyle = '#e8e2e4'; rr(gx - 4, gy, 8, gh, 4); ctx.fill();
       const inBand = S.T >= 24 && S.T <= 28;
-      ctx.fillStyle = inBand ? '#3f9a45' : '#d6332e'; const yT = T2y(clamp(S.T, 16, 36)); rr(gx - 4, yT, 8, gy + gh - yT, 4); ctx.fill();
-      ctx.beginPath(); ctx.arc(gx, gy + gh + 2, 9, 0, TAU); ctx.fill();
-      txt('28', gx + 24, T2y(28), 11, '#fff', 'left'); txt('24', gx + 24, T2y(24), 11, '#fff', 'left');
+      ctx.fillStyle = inBand ? '#3f9a45' : '#d6332e'; const yT = T2y(clamp(S.T, 16, 36)); rr(gx - 4, yT, 8, gy + gh - yT, 4); ctx.fill(); dot(gx, gy + gh + 4, 9);
+      txt('28°', gx - 20, T2y(28), 12, '#fff', 'right'); txt('24°', gx - 20, T2y(24), 12, '#fff', 'right');
       // lecturas
-      ctx.fillStyle = 'rgba(29,13,24,.82)'; rr(12, TOP + 8, W - 24, 44, 10); ctx.fill();
+      ctx.fillStyle = 'rgba(29,13,24,.84)'; rr(12, TOP + 8, W - 24, 44, 10); ctx.fill();
       txt(`${num(S.T)} °C`, 24, TOP + 30, 22, inBand ? '#b6f08c' : '#ff9a8a', 'left', 800);
       const p = clamp(S.p, 0, 1);
       txt(`Azúcar ${Math.round(230 - 228 * p)} g/L`, W - 24, TOP + 22, 12, '#f4eadf', 'right', 600);
       txt(`Alcohol ${num(13.8 * p)} % vol.`, W - 24, TOP + 39, 12, '#f4eadf', 'right', 600);
-      if (S.cool) { ctx.fillStyle = 'rgba(120,200,255,.16)'; rr(tx, ty, tw, th, 16); ctx.fill(); }
     }
   };
 }
 
 /* ============================================================
-   Etapa 7. Crianza en barrica: secuencia de aromas
+   Etapa 7. Crianza en barrica: Tomás cata y reconoce los aromas
    ============================================================ */
 function level7() {
   const A = [{ n: 'Mora', c: '#7a2fa8', f: 262 }, { n: 'Ciruela', c: '#c02a6a', f: 311 }, { n: 'Pimienta negra', c: '#5f6877', f: 370 }, { n: 'Pimentón rojo', c: '#e0402f', f: 415 }, { n: 'Chocolate', c: '#8a4a22', f: 494 }, { n: 'Tabaco', c: '#c9a035', f: 554 }];
   const ROUNDS = 6;
-  const S = { seq: [], round: 0, mode: 'wait', i: 0, timer: 1, lit: -1, glow: 0, lives: 3, fails: 0, end: false };
+  const S = { seq: [], round: 0, mode: 'wait', i: 0, timer: 1, lit: -1, glow: 0, lives: 3, fails: 0, end: false, face: 1 };
   for (let i = 0; i < 3; i++) S.seq.push(Math.floor(Math.random() * 6));
-  function geo(i) { const top = TOP + 64, cw = (W - 24) / 2, ch = (H - top - 20) / 3; return { x: 12 + cw * (i % 2 + .5), y: top + ch * ((i / 2 | 0) + .44), r: Math.min(cw * .36, ch * .38) }; }
-  function flash(i) { S.lit = i; S.glow = 1; tone(A[i].f, .3, 'triangle', .09); }
+  function geo(i) { const top = TOP + 64, cw = (W - 24) / 2, ch = (H - top - 20) / 3; return { x: 12 + cw * (i % 2 + .5) + (i % 2 ? 1 : -1) * cw * .1, y: top + ch * ((i / 2 | 0) + .44), r: Math.min(cw * .33, ch * .38), ch, top }; }
+  function flash(i) { S.lit = i; S.glow = 1; S.face = i % 2 ? 1 : -1; tone(A[i].f, .3, 'triangle', .09); }
   const myRun = runId;
-  function finish() { if (S.end || myRun !== runId) return; S.end = true; endLevel(clamp(S.round / ROUNDS - S.fails * .06, 0, 1), `Tu vino completó ${S.round * 2} de 12 meses de crianza, con ${S.fails} ${S.fails === 1 ? 'cata fallida' : 'catas falladas'}.`); }
+  function finish() { if (S.end || myRun !== runId) return; S.end = true; endLevel(clamp(S.round / ROUNDS - S.fails * .06, 0, 1), `El vino de Tomás completó ${S.round * 2} de 12 meses de crianza, con ${S.fails} ${S.fails === 1 ? 'cata fallida' : 'catas falladas'}.`); }
   return {
     update(dt) {
       if (S.end) return;
@@ -1017,15 +1263,17 @@ function level7() {
     },
     draw(t) {
       cellar(t);
-      ctx.fillStyle = 'rgba(29,13,24,.82)'; rr(12, TOP + 8, W - 24, 44, 10); ctx.fill();
-      txt(S.mode === 'input' ? 'Tu turno: repite la secuencia' : 'Observa la cata', 24, TOP + 22, 14, '#f4eadf', 'left');
+      ctx.fillStyle = 'rgba(29,13,24,.84)'; rr(12, TOP + 8, W - 24, 44, 10); ctx.fill();
+      txt(S.mode === 'input' ? 'Tu turno: repite la secuencia' : 'Observa la cata de Tomás', 24, TOP + 22, 14, '#f4eadf', 'left');
       txt(`Cata ${Math.min(S.round + 1, ROUNDS)} de ${ROUNDS}  ·  Intentos: ${S.lives}`, 24, TOP + 40, 12, '#c3aab6', 'left', 600);
       A.forEach((a, i) => {
         const g = geo(i), gl = S.lit === i ? S.glow : 0;
         barrelHead(g.x, g.y, g.r * (1 + gl * .06), a.c, gl);
         label(a.n, g.x, g.y + g.r + 14, 12, '#fff', gl > .1 ? a.c : 'rgba(29,13,24,.8)');
       });
-      if (S.mode === 'input') { const n = S.seq.length, dw = Math.min(16, (W - 60) / n); for (let i = 0; i < n; i++) { ctx.fillStyle = i < S.i ? '#e6b450' : 'rgba(255,255,255,.25)'; ctx.beginPath(); ctx.arc(W / 2 + (i - (n - 1) / 2) * dw, TOP + 60, 3.5, 0, TAU); ctx.fill(); } }
+      const g0 = geo(0), fs = clamp(g0.ch / 96, .8, 1.35);
+      farmer(W / 2, g0.top + g0.ch * 2.1, fs, { face: S.face, t, apron: true, tool: 'copa', hand: S.glow > .05 ? [13, -80 - S.glow * 6] : [11, -62] });
+      if (S.mode === 'input') { const n = S.seq.length, dw = Math.min(16, (W - 60) / n); for (let i = 0; i < n; i++) { ctx.fillStyle = i < S.i ? '#e6b450' : 'rgba(255,255,255,.25)'; dot(W / 2 + (i - (n - 1) / 2) * dw, TOP + 60, 3.5); } }
     },
     down(x, y) {
       if (S.mode !== 'input' || S.end) return;
@@ -1053,18 +1301,18 @@ function level7() {
 }
 
 /* ============================================================
-   Etapa 8. Embotellado
+   Etapa 8. Embotellado a mano desde la barrica
    ============================================================ */
 function level8() {
   const N = 6, LO = .79, HI = .89;
   const S = { n: 0, phase: 'in', x: -50, level: 0, hold: false, scores: [], timer: 0, end: false, exact: 0 };
   setControls('<button class="btn primary" id="bFill" type="button">Llenar</button>');
   holdButton('#bFill', v => { const was = S.hold; S.hold = v; if (!v && was && S.phase === 'fill' && S.level >= .5) judge(); });
-  const geo = () => { const by = H - BOT - 70, h = Math.min(H * .36, 250); return { by, h, cx: W / 2 }; };
+  const geo = () => { const by = H - BOT - 84, h = clamp(H * .21, 112, 150), cx = W * .6; return { by, h, cx, tip: by - h - 8 }; };
   function judge() {
     const d = S.level < LO ? LO - S.level : S.level > HI ? S.level - HI : 0; const g = geo();
     let q, msg, col; if (d === 0) { q = 1; msg = 'Nivel exacto'; col = GOOD; S.exact++; } else if (d <= .05) { q = .6; msg = S.level < LO ? 'Algo corta' : 'Algo pasada'; col = GOLD; } else { q = .2; msg = S.level < LO ? 'Botella incompleta' : 'Demasiado llena'; col = BAD; }
-    S.scores.push(q); q === 1 ? sfx.ok() : sfx.bad(); fx.text(g.cx, g.by - g.h - 40, msg, col); S.phase = 'seal'; S.timer = 0;
+    S.scores.push(q); q === 1 ? sfx.ok() : sfx.bad(); fx.text(g.cx, g.by - g.h * .5, msg, col); S.phase = 'seal'; S.timer = 0;
   }
   return {
     update(dt) {
@@ -1072,32 +1320,41 @@ function level8() {
       if (S.phase === 'in') { S.x += 300 * dt; if (S.x >= g.cx) { S.x = g.cx; S.phase = 'fill'; } }
       else if (S.phase === 'fill') {
         if (S.hold) { S.level += (.36 + .05 * S.n) * dt; if (Math.random() < .3) tone(300 + S.level * 500, .04, 'sine', .02); }
-        if (S.level >= .985) { S.level = 1; S.scores.push(0); sfx.bad(); fx.text(g.cx, g.by - g.h - 40, 'Derrame', BAD); fx.burst(g.cx, g.by - g.h, '#7a1630', 14); S.phase = 'seal'; S.timer = 0; }
+        if (S.level >= .985) { S.level = 1; S.scores.push(0); sfx.bad(); fx.text(g.cx, g.by - g.h * .5, 'Derrame', BAD); fx.burst(g.cx, g.by - g.h, '#7a1630', 14); S.phase = 'seal'; S.timer = 0; }
       }
       else if (S.phase === 'seal') { S.timer += dt; if (S.timer > 1.15) S.phase = 'out'; }
       else if (S.phase === 'out') {
         S.x += 320 * dt;
         if (S.x > W + 60) {
           S.n++;
-          if (S.n >= N) { S.end = true; const avg = S.scores.reduce((a, b) => a + b, 0) / N; return endLevel(avg, `Llenaste ${S.exact} de ${N} botellas en el nivel exacto.`); }
+          if (S.n >= N) { S.end = true; const avg = S.scores.reduce((a, b) => a + b, 0) / N; return endLevel(avg, `Tomás llenó ${S.exact} de ${N} botellas en el nivel exacto.`); }
           S.x = -50; S.level = 0; S.phase = 'in';
         }
       }
       hud(S.n / N, `${Math.min(S.n + 1, N)}/${N}`);
     },
     draw(t) {
-      cellar(t); const g = geo(), run = S.phase === 'in' || S.phase === 'out';
-      // llenadora
-      ctx.fillStyle = '#8d9399'; ctx.fillRect(g.cx - 46, TOP + 6, 92, 26); ctx.fillStyle = '#6d737a'; ctx.fillRect(g.cx - 9, TOP + 32, 18, g.by - g.h - TOP - 46);
-      ctx.fillStyle = '#4a4f55'; ctx.fillRect(g.cx - 5, g.by - g.h - 16, 10, 12);
-      if (S.hold && S.phase === 'fill') { ctx.fillStyle = '#7a1630'; ctx.fillRect(g.cx - 2.5, g.by - g.h - 6, 5, g.h * (1 - S.level) + 6); }
-      // cinta
-      ctx.fillStyle = '#2c2f36'; ctx.fillRect(0, g.by, W, 16); ctx.fillStyle = '#5c6068'; ctx.fillRect(0, g.by + 16, W, 6);
-      ctx.fillStyle = '#8d9399'; const off = run ? (t * 300) % 40 : 0; for (let x = -40 + off; x < W + 40; x += 40) { ctx.beginPath(); ctx.arc(x, g.by + 8, 5, 0, TAU); ctx.fill(); }
+      cellar(t); const g = geo(), open = S.hold && S.phase === 'fill';
+      // Tomás, detrás del mesón, con la mano en la llave de la barrica
+      const fs = (g.h + 66) / 75, fxp = g.cx - 30 - 12 * fs, fyp = g.by + 60;
+      farmer(fxp, fyp, fs, { face: 1, t, apron: true, noShadow: true, hand: toLocal(fxp, fyp, fs, 1, g.cx + 2, g.tip - 22 + (open ? 5 : 0)), hand2: [16, -44] });
+      // barrica sobre su caballete
+      const br = Math.min(46, (g.tip - TOP - 30) * .5), bx = g.cx + br * 1.2, byc = g.tip - br * .55;
+      ctx.fillStyle = '#5a3a22'; ctx.fillRect(bx - br * .9, byc + br * .6, 7, g.by - byc - br * .6); ctx.fillRect(bx + br * .8, byc + br * .6, 7, g.by - byc - br * .6); ctx.fillRect(bx - br * 1.1, byc + br * .85, br * 2.2, 7);
+      barrelSide(bx, byc, br, 1);
+      ctx.strokeStyle = '#c9a84a'; ctx.lineWidth = 5; ctx.lineCap = 'round'; line(bx - br * 1.15, g.tip - 12, g.cx, g.tip - 12); line(g.cx, g.tip - 12, g.cx, g.tip);
+      ctx.strokeStyle = '#8a6a22'; ctx.lineWidth = 4; const ha = open ? .9 : 0; line(g.cx + 2, g.tip - 14, g.cx + 2 - Math.sin(ha) * 12, g.tip - 14 - Math.cos(ha) * 12);
+      if (open) { ctx.fillStyle = '#7a1630'; ctx.fillRect(g.cx - 2.5, g.tip, 5, g.h * (1 - S.level) + 8); }
       const sealed = S.phase === 'seal' ? S.timer : S.phase === 'out' ? 2 : 0;
       bottle(S.x, g.by, g.h, S.level, { marks: S.phase === 'fill' || S.phase === 'in' ? [LO, HI] : null, cork: clamp(sealed / .35, 0, 1), label: clamp((sealed - .45) / .4, 0, 1) });
+      // mesón de madera
+      const tg = ctx.createLinearGradient(0, g.by, 0, g.by + 14); tg.addColorStop(0, '#c09058'); tg.addColorStop(1, '#8a5d38');
+      ctx.fillStyle = tg; ctx.fillRect(0, g.by, W, 14);
+      ctx.fillStyle = '#5f3d24'; ctx.fillRect(0, g.by + 14, W, H - g.by);
+      ctx.strokeStyle = 'rgba(30,15,5,.35)'; ctx.lineWidth = 1.5; for (let i = 1; i < 7; i++) line(W * i / 7, g.by + 14, W * i / 7, H);
+      ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fillRect(0, g.by + 14, W, 5);
       // botellas terminadas
-      for (let i = 0; i < N; i++) { const bx = W / 2 + (i - (N - 1) / 2) * 30, by = H - BOT - 8; ctx.globalAlpha = i < S.scores.length && !(i === S.n && S.phase !== 'out') ? 1 : .22; bottle(bx, by, 44, i < S.scores.length ? .84 : 0, { cork: 1, label: 1 }); }
+      for (let i = 0; i < N; i++) { const mx = W / 2 + (i - (N - 1) / 2) * 30, myb = H - BOT - 10; ctx.globalAlpha = i < S.scores.length && !(i === S.n && S.phase !== 'out') ? 1 : .25; bottle(mx, myb, 46, i < S.scores.length ? .84 : 0, { cork: 1, label: 1 }); }
       ctx.globalAlpha = 1;
     }
   };
@@ -1120,7 +1377,7 @@ function showTitle() {
       <p class="eyebrow">Chile, 1994</p>
       <h1><span class="strike">Merlot</span><span>Chileno</span></h1>
       <div class="hand">en realidad, Carménère</div>
-      <p>Durante décadas se cultivó como Merlot una cepa que se creía perdida. Descúbrela en tu viñedo, cultívala y llévala hasta la botella.</p>
+      <p>Tomás tiene 38 años y una viña familiar que trabaja a mano y sin químicos. Su Merlot esconde una cepa que se creía perdida. Acompáñalo desde la parra hasta la botella.</p>
       <div class="row">
         <button class="btn primary" data-act="map" data-focus type="button">${started ? 'Continuar' : 'Jugar'}</button>
         <button class="btn" data-act="log" type="button">Bitácora</button>
@@ -1140,7 +1397,7 @@ function showMap() {
   const done = save.stars.every(s => s > 0);
   show(`
     <div class="panel">
-      <div class="topbar"><div><p class="eyebrow">Ruta de producción</p><h2>De la parra a la botella</h2></div>
+      <div class="topbar"><div><p class="eyebrow">La viña de Tomás</p><h2>De la parra a la botella</h2></div>
       <button class="btn small" data-act="title" type="button">Inicio</button></div>
       <p class="muted small">${totalStars()} de ${N_LEVELS * 3} estrellas. Necesitas al menos una estrella para abrir la etapa siguiente.</p>
       <ul class="route">${list}</ul>
@@ -1150,7 +1407,7 @@ function showMap() {
 function showIntro(i) {
   stopLevel(); const L = LEVELS[i];
   const extra = i === 7 ? `
-    <label class="field" for="inName">Nombre de tu viña
+    <label class="field" for="inName">Nombre de la viña de Tomás
       <input id="inName" maxlength="22" autocomplete="off" placeholder="Viña del Carmín" value="${esc(save.name)}"></label>
     <label class="field" for="inValley">Valle de origen
       <select id="inValley">${['Maipo', 'Cachapoal', 'Colchagua', 'Curicó', 'Maule'].map(v => `<option${v === save.valley ? ' selected' : ''}>${v}</option>`).join('')}</select></label>` : '';
@@ -1202,7 +1459,7 @@ function showLog() {
     : `<p class="fact locked"><b>${i + 1}. ${L.title}</b>Supera esta etapa para registrar el dato.</p>`).join('');
   show(`
     <div class="panel">
-      <div class="topbar"><div><p class="eyebrow">Bitácora del productor</p><h2>La historia de una cepa perdida</h2></div>
+      <div class="topbar"><div><p class="eyebrow">Bitácora de Tomás</p><h2>La historia de una cepa perdida</h2></div>
       <button class="btn small" data-act="title" type="button">Inicio</button></div>
       <div class="log">${items}</div>
     </div>`, 'full');
@@ -1213,9 +1470,9 @@ function showFinal() {
   const s = totalStars();
   show(`
     <div class="panel">
-      <p class="eyebrow">Tu vino está listo</p>
+      <p class="eyebrow">El vino de Tomás está listo</p>
       <h2>${esc(save.name || 'Viña del Carmín')}, Carménère ${wineClass()}</h2>
-      <p>Reuniste ${s} de ${N_LEVELS * 3} estrellas en la ruta de producción. Lo que por décadas se vendió como Merlot hoy lleva en la etiqueta su nombre verdadero.</p>
+      <p>Tomás y tú reunieron ${s} de ${N_LEVELS * 3} estrellas en la ruta de producción. Lo que por décadas se vendió como Merlot hoy lleva en la etiqueta su nombre verdadero, hecho a mano y sin químicos.</p>
       <p class="muted small">${s >= 22 ? 'Alcanzaste la categoría más alta.' : 'Repite las etapas con menos estrellas para subir la categoría de tu vino: Varietal, Reserva, Gran Reserva e Ícono.'}</p>
       <div class="row">
         <button class="btn primary" data-act="map" data-focus type="button">Volver a la ruta</button>
@@ -1266,28 +1523,41 @@ cv.addEventListener('pointermove', e => { if (pressed && cur && !paused && cur.s
 function resize() {
   const r = app.getBoundingClientRect(); W = Math.max(280, r.width); H = Math.max(420, r.height);
   DPR = Math.min(window.devicePixelRatio || 1, 2.5); cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  layers.clear();
+}
+function drawAmbient(t) {
+  // Tomás se ubica en el espacio libre sobre el texto de la portada
+  const hero = elScreen.hidden ? null : elScreen.querySelector('.hero');
+  const lim = hero ? hero.getBoundingClientRect().top - app.getBoundingClientRect().top : H * .52;
+  const y = clamp(lim - 14, 150, H * .52), s = clamp(y / 330, .72, 1.15), hz = Math.round(y - 70 * s), hf = hz / H;
+  backdrop(t, ambientMood, hf, 0, true);
+  sheep(W * .16, hz + 26 * s, .7 * s, t); sheep(W * .3, hz + 42 * s, .85 * s, t + 1.3, -1);
+  vine(W * .86, y + 8, 1.25 * s, t, { stake: true }); bunch(W * .86 + 14 * s, y - 36 * s, 1.1 * s, [72, 24, 86], 1);
+  farmer(W * .62, y + 4, 1.12 * s, { face: 1, t, tool: 'lupa', hand: [15, -70 + Math.sin(t * 1.2) * 3] });
+  basket(W * .44, y - 6, .5 * s);
 }
 window.addEventListener('resize', resize);
 
 function drawFinal(t) {
-  backdrop(t, 'sunset', .46);
+  backdrop(t, 'sunset', .46, 0, true);
   // la botella se encuadra en el espacio libre sobre el panel, con la etiqueta a la vista
   const pn = elScreen.querySelector('.panel'), ar = app.getBoundingClientRect();
   const vis = clamp(pn ? pn.getBoundingClientRect().top - ar.top : H * .5, 180, H * .7);
   const h = vis * 1.2, x = W / 2, yb = vis - 12 + h * .2;
   bottle(x, yb, h, .86, { cork: 1, label: 1, text: [save.name || 'Viña del Carmín', 'D.O. Valle de ' + save.valley, wineClass() + ' · ' + new Date().getFullYear()] });
+  farmer(W * .2, vis - 6, clamp(vis / 250, .8, 1.5), { face: 1, t, tool: 'copa', hand: [14, -84 + Math.sin(t * 1.5) * 3] });
   for (let i = 0; i < 3; i++) { const a = t * .8 + i * 2.1; ctx.fillStyle = `rgba(255,220,150,${.35 + .3 * Math.sin(a * 2)})`; ctx.beginPath(); ctx.arc(x + Math.cos(a) * h * .26, yb - h * (.55 + .3 * Math.sin(a * 1.3)), 2.5, 0, TAU); ctx.fill(); }
 }
 
 let lastTs = 0;
 function frame(ts) {
   const dt = Math.min(.05, (ts - lastTs) / 1000 || 0); lastTs = ts;
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.globalAlpha = 1;
   if (cur && cur.scene) {
     if (!paused) { clock += dt; cur.scene.update(dt); fx.update(dt); }
     if (cur && cur.scene) { cur.scene.draw(clock); fx.draw(); }
   }
-  if (!cur) { clock += dt; if (finalView) drawFinal(clock); else backdrop(clock, ambientMood, .5); }
+  if (!cur) { clock += dt; if (finalView) drawFinal(clock); else drawAmbient(clock); }
   requestAnimationFrame(frame);
 }
 
