@@ -1,0 +1,1303 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#1d0d18">
+<title>Merlot Chileno</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Juego para celular sobre el redescubrimiento del Carménère en Chile: de la investigación en el viñedo a la botella etiquetada.">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600;700;800&family=Gloock&display=swap">
+<style>
+/* Layout: un solo escenario vertical a pantalla completa; el valle animado va de fondo
+   y las pantallas (portada, ruta, fichas) flotan encima como paneles opacos color vino. */
+:root {
+  color-scheme: dark;
+  --ink: #1d0d18;        /* fondo general, casi negro con tinte de ciruela */
+  --panel: #2b1423;      /* paneles */
+  --panel-2: #3b1c30;    /* superficies elevadas */
+  --line: #5a3349;       /* bordes finos */
+  --paper: #f4eadf;      /* texto principal */
+  --muted: #c3aab6;      /* texto secundario */
+  --carmin: #cf2f4a;     /* acento: el carmín que da nombre a la cepa */
+  --carmin-ink: #ffffff;
+  --gold: #e6b450;       /* estrellas y logros */
+  --vine: #7fbf5a;       /* estados correctos */
+  --display: "Gloock", "Georgia", "Times New Roman", serif;
+  --body: "Figtree", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);
+  box-sizing: border-box;
+  height: 100%;
+}
+html { height: 100%; }
+body {
+  margin: 0; height: 100%;
+  background: var(--ink); color: var(--paper);
+  font-family: var(--body); font-size: 16px; line-height: 1.45;
+  overflow: hidden; overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+#app {
+  position: relative; height: 100%; max-width: 520px; margin: 0 auto;
+  overflow: hidden; background: var(--ink);
+  -webkit-user-select: none; user-select: none;
+}
+#cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+/* ---- HUD de partida ---- */
+#hud {
+  position: absolute; inset: 0 0 auto 0; z-index: 3;
+  display: flex; align-items: center; gap: 12px;
+  padding-block: 10px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: linear-gradient(var(--ink), rgba(29, 13, 24, .82));
+  border-bottom: 1px solid var(--line);
+}
+#hud .mid { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+#hudTitle { font-weight: 700; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar { height: 8px; border-radius: 4px; background: var(--panel-2); overflow: hidden; }
+.bar i { display: block; height: 100%; width: 100%; background: var(--gold); border-radius: 4px; transform-origin: left center; }
+#hudScore { font-weight: 800; font-size: 17px; font-variant-numeric: tabular-nums; min-width: 68px; text-align: right; }
+
+/* ---- Controles de partida ---- */
+#controls {
+  position: absolute; inset: auto 0 0 0; z-index: 3;
+  display: flex; gap: 12px;
+  padding-block: 12px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+#controls .btn { flex: 1; min-height: 60px; font-size: 18px; touch-action: none; }
+
+/* ---- Botones ---- */
+.btn {
+  appearance: none; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel-2); color: var(--paper);
+  font: 700 16px/1.1 var(--body); padding: 14px 18px; min-height: 50px;
+  cursor: pointer; touch-action: manipulation;
+}
+.btn:active, .btn.held { transform: translateY(1px); filter: brightness(1.2); }
+.btn:focus-visible, .stop:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.btn.primary { background: var(--carmin); border-color: var(--carmin); color: var(--carmin-ink); }
+.btn.small { min-height: 38px; padding: 8px 12px; font-size: 13px; }
+.btn.ghost { background: transparent; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; }
+.row .btn { flex: 1 1 130px; }
+
+/* ---- Pantallas ---- */
+#screen {
+  position: absolute; inset: 0; z-index: 5;
+  display: flex; flex-direction: column; justify-content: flex-end;
+  padding-block: 16px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: linear-gradient(rgba(29, 13, 24, 0) 0%, rgba(29, 13, 24, .55) 45%, rgba(29, 13, 24, .92) 100%);
+  overflow-y: auto;
+}
+#screen.full { justify-content: flex-start; background: rgba(29, 13, 24, .93); }
+#screen.center { justify-content: center; background: rgba(29, 13, 24, .8); }
+.panel {
+  display: flex; flex-direction: column; gap: 14px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  padding: 20px; min-width: 0;
+}
+.eyebrow { font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--gold); margin: 0; }
+h1, h2 { font-family: var(--display); font-weight: 400; margin: 0; text-wrap: balance; line-height: 1.05; }
+h1 { font-size: clamp(46px, 15vw, 68px); letter-spacing: -.01em; }
+h2 { font-size: 28px; }
+p { margin: 0; }
+.muted { color: var(--muted); }
+.small { font-size: 14px; }
+
+/* Portada: "Merlot" tachado en carmín es la tesis del juego */
+.hero { display: flex; flex-direction: column; gap: 14px; padding: 4px 4px 0; }
+.hero h1 span { display: block; }
+.strike { position: relative; align-self: flex-start; width: max-content; }
+.strike::after {
+  content: ""; position: absolute; left: -4%; right: -4%; top: 56%; height: 6px;
+  background: var(--carmin); border-radius: 3px; transform: rotate(-4deg);
+  animation: strike .7s .35s cubic-bezier(.2, .8, .2, 1) backwards;
+}
+@keyframes strike { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+.hand { font-family: var(--display); font-style: italic; color: var(--carmin); font-size: 26px; margin-top: -6px; transform: rotate(-3deg); transform-origin: left; text-shadow: 0 1px 0 rgba(0,0,0,.4); }
+.hero p { max-width: 34ch; text-shadow: 0 1px 6px rgba(0, 0, 0, .7); }
+
+/* Ruta de producción */
+.route { display: flex; flex-direction: column; gap: 0; margin: 0; padding: 0; list-style: none; }
+.phase { font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--gold); padding: 14px 0 8px 52px; }
+.stop {
+  appearance: none; width: 100%; text-align: left; color: inherit; font: inherit; cursor: pointer;
+  display: grid; grid-template-columns: 40px 1fr auto; gap: 12px; align-items: center;
+  background: transparent; border: 0; border-top: 1px solid var(--line); padding: 12px 0;
+}
+.stop .num {
+  width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
+  font: 400 19px var(--display); border: 1px solid var(--line); background: var(--panel-2);
+}
+.stop.next .num { background: var(--carmin); border-color: var(--carmin); color: var(--carmin-ink); }
+.stop .t { font-weight: 700; display: block; }
+.stop .s { font-size: 13px; color: var(--muted); display: block; }
+.stop[disabled] { opacity: .45; cursor: default; }
+.stars { display: inline-flex; gap: 3px; }
+.stars i {
+  width: 16px; height: 16px; background: var(--line);
+  clip-path: polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+}
+.stars i.on { background: var(--gold); }
+.stars.big i { width: 40px; height: 40px; }
+.stars.big { gap: 8px; justify-content: center; }
+.stars.big i.on { animation: pop .45s backwards; }
+.stars.big i:nth-child(2).on { animation-delay: .18s; }
+.stars.big i:nth-child(3).on { animation-delay: .36s; }
+@keyframes pop { from { transform: scale(.2) rotate(-40deg); } 60% { transform: scale(1.25); } to { transform: none; } }
+
+.how { border-top: 1px solid var(--line); padding-top: 12px; }
+.how b, .fact b { display: block; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--gold); margin-bottom: 4px; }
+.fact { background: var(--panel-2); border-left: 3px solid var(--carmin); border-radius: 6px; padding: 12px 14px; font-size: 15px; }
+.score-line { display: flex; justify-content: space-between; align-items: baseline; border-top: 1px solid var(--line); padding-top: 12px; }
+.score-line strong { font-size: 30px; font-family: var(--display); font-weight: 400; font-variant-numeric: tabular-nums; }
+.field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); font-weight: 600; }
+.field input, .field select {
+  font: 600 16px var(--body); color: var(--paper); background: var(--ink);
+  border: 1px solid var(--line); border-radius: 8px; padding: 12px; width: 100%;
+  -webkit-user-select: text; user-select: text;
+}
+.log { display: flex; flex-direction: column; gap: 10px; }
+.log .fact.locked { border-left-color: var(--line); color: var(--muted); }
+.topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+
+#toast {
+  position: absolute; left: 50%; top: 122px; z-index: 4; transform: translateX(-50%);
+  background: var(--panel); border: 1px solid var(--line); color: var(--paper);
+  padding: 8px 14px; border-radius: 20px; font-weight: 700; font-size: 14px;
+  max-width: calc(100% - 32px); text-align: center;
+  opacity: 0; transition: opacity .25s; pointer-events: none;
+}
+#toast.on { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .strike::after, .stars.big i.on { animation: none; }
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="cv" aria-label="Escenario del juego"></canvas>
+  <header id="hud" hidden>
+    <button class="btn small" id="btnPause" type="button">Pausa</button>
+    <div class="mid">
+      <div id="hudTitle"></div>
+      <div class="bar"><i id="hudBar"></i></div>
+    </div>
+    <div id="hudScore">0</div>
+  </header>
+  <div id="toast" role="status"></div>
+  <div id="controls" hidden></div>
+  <section id="screen"></section>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+/* ============================================================
+   Utilidades
+   ============================================================ */
+const $ = s => document.querySelector(s);
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const rnd = (a, b) => a + Math.random() * (b - a);
+const pick = a => a[Math.floor(Math.random() * a.length)];
+const mix = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+const rgb = (c, al) => al == null ? `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})` : `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${al})`;
+const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function seeded(seed) { let a = seed >>> 0; return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+const app = $('#app'), cv = $('#cv'), ctx = cv.getContext('2d');
+const elHud = $('#hud'), elHudTitle = $('#hudTitle'), elHudBar = $('#hudBar'), elHudScore = $('#hudScore');
+const elScreen = $('#screen'), elControls = $('#controls'), elToast = $('#toast');
+const FONT = '"Figtree", system-ui, -apple-system, "Segoe UI", sans-serif';
+const DISPLAY = '"Gloock", Georgia, serif';
+const MS = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches ? 0.25 : 1;
+let W = 360, H = 640, DPR = 1;
+const TOP = 66;   // alto reservado para el HUD
+let BOT = 16;     // alto reservado para controles
+
+/* ============================================================
+   Guardado
+   ============================================================ */
+const KEY = 'merlot-chileno-v1';
+const N_LEVELS = 8;
+let save = { stars: Array(N_LEVELS).fill(0), best: Array(N_LEVELS).fill(0), sound: true, name: '', valley: 'Colchagua' };
+function loadSave(extra) {
+  let d = null;
+  try { d = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { d = null; }
+  if (extra && extra.save) d = extra.save;
+  if (d && Array.isArray(d.stars)) {
+    for (let i = 0; i < N_LEVELS; i++) { save.stars[i] = clamp(d.stars[i] | 0, 0, 3); save.best[i] = (d.best && d.best[i]) | 0; }
+    save.sound = d.sound !== false; save.name = typeof d.name === 'string' ? d.name.slice(0, 22) : ''; save.valley = d.valley || 'Colchagua';
+  }
+}
+function persist() { try { localStorage.setItem(KEY, JSON.stringify(save)); } catch (e) { /* sin almacenamiento: la partida sigue en memoria */ } }
+const unlocked = () => { let n = 0; while (n < N_LEVELS && save.stars[n] > 0) n++; return Math.min(n, N_LEVELS - 1); };
+const totalStars = () => save.stars.reduce((a, b) => a + b, 0);
+
+/* ============================================================
+   Sonido (Web Audio, se activa con el primer toque)
+   ============================================================ */
+let AC = null;
+function tone(f, d = .12, type = 'sine', v = .08, when = 0) {
+  if (!save.sound) return;
+  try {
+    AC = AC || new (window.AudioContext || window.webkitAudioContext)();
+    if (AC.state === 'suspended') AC.resume();
+    const o = AC.createOscillator(), g = AC.createGain(), t0 = AC.currentTime + when;
+    o.type = type; o.frequency.value = f;
+    g.gain.setValueAtTime(v, t0); g.gain.exponentialRampToValueAtTime(.0001, t0 + d);
+    o.connect(g); g.connect(AC.destination); o.start(t0); o.stop(t0 + d + .03);
+  } catch (e) { /* audio no disponible */ }
+}
+const sfx = {
+  ok() { tone(660, .09); tone(990, .13, 'sine', .07, .07); },
+  bad() { tone(165, .22, 'sawtooth', .05); },
+  tap() { tone(440, .05, 'triangle', .05); },
+  drop() { tone(820, .06, 'sine', .04); },
+  win() { [523, 659, 784, 1047].forEach((f, i) => tone(f, .2, 'triangle', .08, i * .11)); }
+};
+
+/* ============================================================
+   Primitivas de dibujo
+   ============================================================ */
+function rr(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+function txt(s, x, y, size, color, align = 'center', weight = 700, font = FONT) {
+  ctx.font = `${weight} ${size}px ${font}`; ctx.textAlign = align; ctx.textBaseline = 'middle'; ctx.fillStyle = color; ctx.fillText(s, x, y);
+}
+function label(s, x, y, size = 12, fg = '#fff', bg = 'rgba(29,13,24,.78)') {
+  ctx.font = `700 ${size}px ${FONT}`; const w = ctx.measureText(s).width + 14;
+  ctx.fillStyle = bg; rr(x - w / 2, y - size * .85, w, size * 1.7, size * .85); ctx.fill();
+  txt(s, x, y + .5, size, fg);
+}
+function line(x1, y1, x2, y2) { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); }
+
+/* Hoja de vid: cinco lóbulos en coordenadas polares */
+function leaf(x, y, r, rot, color) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
+  ctx.beginPath();
+  for (let i = 0; i <= 40; i++) {
+    const a = i / 40 * TAU, q = r * (.58 + .42 * Math.pow(Math.abs(Math.cos(a * 2.5)), .6));
+    const px = Math.sin(a) * q, py = -Math.cos(a) * q;
+    i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+  }
+  ctx.closePath(); ctx.fillStyle = color; ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,.18)'; ctx.lineWidth = Math.max(.6, r * .07);
+  line(0, r * .7, 0, -r * .7);
+  ctx.restore();
+}
+
+/* Racimo: triángulo invertido de bayas */
+const BUNCH_ROWS = [3, 4, 3, 2, 1];
+function bunch(x, y, s, col, shine = 0, shrink = 0) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
+  ctx.strokeStyle = '#5c4a2a'; ctx.lineWidth = 2; line(0, -10, 0, -2);
+  const r = 5.2 * (1 - shrink * .28);
+  BUNCH_ROWS.forEach((n, row) => {
+    for (let i = 0; i < n; i++) {
+      const bx = (i - (n - 1) / 2) * 9.4, by = row * 8.2;
+      ctx.fillStyle = rgb(mix(col, [0, 0, 0], ((i + row) % 2) * .14)); ctx.beginPath(); ctx.arc(bx, by, r, 0, TAU); ctx.fill();
+      if (shine > 0) { ctx.fillStyle = `rgba(255,255,255,${.5 * shine})`; ctx.beginPath(); ctx.arc(bx - 1.6, by - 1.8, 1.5, 0, TAU); ctx.fill(); }
+    }
+  });
+  ctx.restore();
+}
+
+/* Parra vista de frente */
+const VINE_LEAVES = [[-26, -50, 13, -.5], [-12, -58, 14, -.2], [4, -60, 14, .15], [20, -54, 13, .5], [-18, -42, 11, -.8], [14, -42, 11, .7], [-2, -48, 12, 0]];
+function vine(x, y, s, t, o = {}) {
+  const sw = Math.sin(t * 1.4 + (o.ph || 0)) * .07 * MS;
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
+  ctx.fillStyle = 'rgba(40,25,10,.22)'; ctx.beginPath(); ctx.ellipse(0, 2, 30, 6, 0, 0, TAU); ctx.fill();
+  ctx.strokeStyle = '#6b4a2f'; ctx.lineCap = 'round'; ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(-4, -20, 0, -40); ctx.stroke();
+  ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(-28, -43); ctx.quadraticCurveTo(0, -36, 28, -43); ctx.stroke();
+  const c1 = o.leaf || '#4f9a3a', c2 = o.leaf2 || '#3f8530';
+  VINE_LEAVES.forEach((l, i) => leaf(l[0], l[1] + (o.droop ? 4 : 0), l[2], l[3] + sw * (i % 2 ? 1 : -1) + (o.droop ? .45 * Math.sign(l[0] || 1) : 0), i % 2 ? c1 : c2));
+  if (o.tip) {
+    [[-22, -66], [0, -74], [20, -68]].forEach((p, i) => {
+      ctx.strokeStyle = '#5d8a3a'; ctx.lineWidth = 1.5; line(p[0] * .8, p[1] + 12, p[0] + sw * 18, p[1]);
+      leaf(p[0] + sw * 18, p[1], 7.5, sw * 3 + (i - 1) * .4, o.tip);
+      leaf(p[0] + 6 + sw * 18, p[1] + 6, 5.5, .7 + sw * 3, o.tip);
+    });
+  }
+  ctx.restore();
+}
+
+/* Paisaje: cordillera de los Andes, lomas e hileras del valle */
+const MOODS = {
+  day:    { sky: ['#4f9fdc', '#b9e0f4', '#e8f3df'], sun: [.78, .42, '#fff3c4'], far: '#8496b8', near: '#5f7397', hill: '#6f9a55', earth: '#b88a5c', row: '#4f8f3a', rowD: '#3d7a2e' },
+  dawn:   { sky: ['#78b6e2', '#f6d6bc', '#fbe9cf'], sun: [.2, .62, '#ffe2a8'], far: '#9aa0c0', near: '#6e7aa0', hill: '#7a9c5c', earth: '#bd9060', row: '#5a9640', rowD: '#447f31' },
+  sunset: { sky: ['#2c2a66', '#b8527a', '#f6a35f'], sun: [.5, .86, '#ffd27a'], far: '#6b5a8c', near: '#473e6e', hill: '#4b5e3f', earth: '#8a5f45', row: '#3f6e33', rowD: '#2f5827' },
+  autumn: { sky: ['#6aa6d6', '#e6d2b2', '#f4dfb9'], sun: [.7, .5, '#ffe9b0'], far: '#8a93b5', near: '#667296', hill: '#8f9550', earth: '#b5855a', row: '#7d9440', rowD: '#647a30' }
+};
+function makeRidge(seed, n, lo, hi) { const r = seeded(seed), a = []; for (let i = 0; i <= n; i++) { const k = i % 4, base = k === 2 ? hi : k === 0 ? lo : (lo + hi) / 2; a.push(base * (.82 + r() * .36)); } return a; }
+const RIDGE_A = makeRidge(1994, 16, .36, .8), RIDGE_B = makeRidge(1998, 12, .13, .34);
+function ridgePath(arr, y0, hz) {
+  ctx.beginPath(); ctx.moveTo(-10, y0 + 2);
+  arr.forEach((v, i) => ctx.lineTo(-10 + (W + 20) * i / (arr.length - 1), y0 - hz * v));
+  ctx.lineTo(W + 10, y0 + 2); ctx.closePath();
+}
+function backdrop(t, mood = 'day', hf = .3, soft = 0) {
+  const m = MOODS[mood], y0 = H * hf, mh = Math.min(y0, 230);
+  const g = ctx.createLinearGradient(0, 0, 0, y0 + 20);
+  g.addColorStop(0, m.sky[0]); g.addColorStop(.65, m.sky[1]); g.addColorStop(1, m.sky[2]);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, y0 + 20);
+  // sol
+  const sx = W * m.sun[0], sy = y0 * m.sun[1];
+  const sg = ctx.createRadialGradient(sx, sy, 4, sx, sy, 90);
+  sg.addColorStop(0, m.sun[2]); sg.addColorStop(.18, m.sun[2]); sg.addColorStop(.2, 'rgba(255,240,200,.35)'); sg.addColorStop(1, 'rgba(255,240,200,0)');
+  ctx.fillStyle = sg; ctx.fillRect(sx - 90, sy - 90, 180, 180);
+  // nubes
+  ctx.fillStyle = mood === 'sunset' ? 'rgba(255,200,170,.5)' : 'rgba(255,255,255,.78)';
+  for (let i = 0; i < 4; i++) {
+    const cx = ((i * 157 + t * (5 + i * 2.5) * MS) % (W + 180)) - 90, cy = y0 * (.14 + i * .12), k = .7 + (i % 3) * .25;
+    ctx.beginPath(); ctx.ellipse(cx, cy, 34 * k, 9 * k, 0, 0, TAU); ctx.ellipse(cx + 20 * k, cy - 6 * k, 22 * k, 10 * k, 0, 0, TAU); ctx.ellipse(cx - 20 * k, cy - 3 * k, 18 * k, 8 * k, 0, 0, TAU); ctx.fill();
+  }
+  // cordillera lejana con nieve
+  ctx.fillStyle = m.far; ridgePath(RIDGE_A, y0, mh); ctx.fill();
+  ctx.save(); ridgePath(RIDGE_A, y0, mh); ctx.clip();
+  ctx.fillStyle = mood === 'sunset' ? '#f3c9c0' : '#f7fafc'; ctx.beginPath(); ctx.moveTo(-10, 0);
+  const sl = y0 - mh * .6;
+  for (let i = 0; i <= 26; i++) ctx.lineTo(-10 + (W + 20) * i / 26, sl + (i % 2 ? mh * .07 : 0) + Math.sin(i * 1.7) * mh * .025);
+  ctx.lineTo(W + 10, 0); ctx.closePath(); ctx.fill(); ctx.restore();
+  // precordillera
+  ctx.fillStyle = m.near; ridgePath(RIDGE_B, y0, mh); ctx.fill();
+  // cóndor
+  const bx = ((t * 16 * MS) % (W + 160)) - 80, by = y0 - mh * .7 + Math.sin(t * .7) * 8, fl = Math.sin(t * 2.2) * 2.5;
+  ctx.strokeStyle = 'rgba(30,20,30,.7)'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(bx - 12, by - 3 + fl); ctx.quadraticCurveTo(bx - 5, by - 5, bx, by); ctx.quadraticCurveTo(bx + 5, by - 5, bx + 12, by - 3 + fl); ctx.stroke();
+  // lomas
+  ctx.fillStyle = m.hill; ctx.beginPath(); ctx.moveTo(0, y0 + 4);
+  for (let x = 0; x <= W; x += 8) ctx.lineTo(x, y0 - 9 - Math.sin(x * .021 + 1) * 7 - Math.sin(x * .05) * 3);
+  ctx.lineTo(W, y0 + 4); ctx.closePath(); ctx.fill();
+  // suelo e hileras en perspectiva
+  ctx.fillStyle = m.earth; ctx.fillRect(0, y0, W, H - y0);
+  const vx = W / 2;
+  for (let k = -5; k <= 5; k++) {
+    const tb = vx + k * W * .26, th = vx + k * W * .034, wb = W * .075, wh = W * .009;
+    ctx.fillStyle = m.row; ctx.beginPath(); ctx.moveTo(th - wh, y0); ctx.lineTo(th + wh, y0); ctx.lineTo(tb + wb, H); ctx.lineTo(tb - wb, H); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = m.rowD; ctx.beginPath(); ctx.moveTo(th, y0); ctx.lineTo(th + wh, y0); ctx.lineTo(tb + wb, H); ctx.lineTo(tb + wb * .25, H); ctx.closePath(); ctx.fill();
+  }
+  const fg = ctx.createLinearGradient(0, y0, 0, y0 + 50); fg.addColorStop(0, 'rgba(255,255,255,.28)'); fg.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = fg; ctx.fillRect(0, y0, W, 50);
+  if (soft) { ctx.globalAlpha = soft; ctx.fillStyle = m.earth; ctx.fillRect(0, y0, W, H - y0); ctx.globalAlpha = 1; }
+}
+
+/* Bodega: muros de adobe, arcos, lámparas y barricas al fondo */
+function cellar(t) {
+  const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#2a191d'); g.addColorStop(.7, '#4c2e27'); g.addColorStop(1, '#2e1f1d');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  const fy = H * .8;
+  ctx.fillStyle = 'rgba(20,10,12,.5)';
+  for (let i = 0; i < 3; i++) { const ax = W * (.17 + i * .33), aw = W * .26; ctx.beginPath(); ctx.moveTo(ax - aw / 2, fy); ctx.lineTo(ax - aw / 2, H * .32); ctx.arc(ax, H * .32, aw / 2, Math.PI, 0); ctx.lineTo(ax + aw / 2, fy); ctx.closePath(); ctx.fill(); }
+  for (let i = 0; i < 6; i++) barrelSide(W * (.09 + i * .165), fy - 17, 25, .55);
+  ctx.fillStyle = '#35241f'; ctx.fillRect(0, fy, W, H - fy);
+  ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.lineWidth = 1;
+  for (let i = 1; i < 5; i++) line(0, fy + (H - fy) * i / 5, W, fy + (H - fy) * i / 5);
+  for (let i = 0; i < 2; i++) {
+    const lx = W * (.25 + i * .5), ly = TOP + 26, fl = .85 + Math.sin(t * 7 + i * 2) * .05 * MS;
+    ctx.strokeStyle = '#1a0f10'; ctx.lineWidth = 2; line(lx, TOP - 10, lx, ly);
+    const lg = ctx.createRadialGradient(lx, ly, 2, lx, ly, 120); lg.addColorStop(0, `rgba(255,214,140,${.5 * fl})`); lg.addColorStop(1, 'rgba(255,214,140,0)');
+    ctx.fillStyle = lg; ctx.fillRect(lx - 120, ly - 120, 240, 240);
+    ctx.fillStyle = '#ffe2a6'; ctx.beginPath(); ctx.arc(lx, ly, 5, 0, TAU); ctx.fill();
+  }
+}
+function barrelSide(x, y, r, al = 1) {
+  ctx.save(); ctx.globalAlpha = al;
+  ctx.fillStyle = '#8a5d38'; ctx.beginPath(); ctx.ellipse(x, y, r * 1.25, r, 0, 0, TAU); ctx.fill();
+  ctx.strokeStyle = '#2f221c'; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(x, y, r * .78, r * .98, 0, 0, TAU); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(x, y, r * 1.22, r * .98, 0, 0, TAU); ctx.stroke();
+  ctx.restore();
+}
+function barrelHead(x, y, r, tint, glow) {
+  ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(x, y + r * .96, r * .9, r * .16, 0, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#2f221c'; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+  ctx.save(); ctx.beginPath(); ctx.arc(x, y, r * .86, 0, TAU); ctx.clip();
+  ctx.fillStyle = '#a8763f'; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  ctx.strokeStyle = 'rgba(60,35,15,.45)'; ctx.lineWidth = 1.5;
+  for (let i = -3; i <= 3; i++) line(x + i * r * .26, y - r, x + i * r * .26, y + r);
+  ctx.fillStyle = tint; ctx.globalAlpha = .28 + glow * .6; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  ctx.restore();
+  ctx.strokeStyle = glow > .05 ? `rgba(255,236,190,${.4 + glow * .6})` : '#8d9399'; ctx.lineWidth = 3 + glow * 3;
+  ctx.beginPath(); ctx.arc(x, y, r * .93, 0, TAU); ctx.stroke();
+}
+
+/* Botella bordelesa */
+function bottlePath(x, yb, h) {
+  const w = h * .27, nw = w * .36, body = h * .6, sh = h * .76;
+  ctx.beginPath();
+  ctx.moveTo(x - w / 2, yb - 4); ctx.quadraticCurveTo(x - w / 2, yb, x - w / 2 + 4, yb); ctx.lineTo(x + w / 2 - 4, yb); ctx.quadraticCurveTo(x + w / 2, yb, x + w / 2, yb - 4);
+  ctx.lineTo(x + w / 2, yb - body); ctx.bezierCurveTo(x + w / 2, yb - sh + 2, x + nw / 2, yb - sh + 6, x + nw / 2, yb - sh - 6);
+  ctx.lineTo(x + nw / 2, yb - h); ctx.lineTo(x - nw / 2, yb - h); ctx.lineTo(x - nw / 2, yb - sh - 6);
+  ctx.bezierCurveTo(x - nw / 2, yb - sh + 6, x - w / 2, yb - sh + 2, x - w / 2, yb - body); ctx.closePath();
+}
+function bottle(x, yb, h, fill, o = {}) {
+  const w = h * .27, nw = w * .36;
+  ctx.save(); bottlePath(x, yb, h); ctx.fillStyle = 'rgba(38,66,44,.55)'; ctx.fill(); ctx.clip();
+  if (fill > 0) { ctx.fillStyle = '#5a0f2a'; ctx.fillRect(x - w, yb - h * fill, w * 2, h * fill); }
+  ctx.fillStyle = 'rgba(255,255,255,.14)'; ctx.fillRect(x - w * .38, yb - h, w * .14, h);
+  ctx.restore();
+  bottlePath(x, yb, h); ctx.strokeStyle = 'rgba(190,230,200,.55)'; ctx.lineWidth = 1.5; ctx.stroke();
+  if (o.marks) {
+    ctx.strokeStyle = '#e6b450'; ctx.lineWidth = 2; ctx.setLineDash([4, 3]);
+    line(x - w * .62, yb - h * o.marks[0], x + w * .62, yb - h * o.marks[0]); line(x - w * .62, yb - h * o.marks[1], x + w * .62, yb - h * o.marks[1]);
+    ctx.setLineDash([]);
+  }
+  if (o.cork > 0) { ctx.fillStyle = '#c9a36a'; ctx.fillRect(x - nw * .42, yb - h - 10 + 12 * Math.min(1, o.cork), nw * .84, 12); if (o.cork >= 1) { ctx.fillStyle = '#7a1630'; ctx.fillRect(x - nw / 2 - 1, yb - h - 1, nw + 2, h * .1); } }
+  if (o.label > 0) {
+    const lw = w * .96, lh = h * .3, ly = yb - h * .5;
+    ctx.globalAlpha = Math.min(1, o.label); ctx.fillStyle = '#f4eadf'; ctx.fillRect(x - lw / 2, ly, lw, lh);
+    ctx.fillStyle = '#cf2f4a'; ctx.fillRect(x - lw / 2, ly + lh * .16, lw, lh * .1);
+    if (o.text) {
+      const fit = (str, size, weight, font) => { ctx.font = `${weight} ${size}px ${font}`; const tw = ctx.measureText(str).width; return tw > lw * .88 ? size * lw * .88 / tw : size; };
+      let lines = [o.text[0]];
+      if (o.text[0].length > 11 && o.text[0].includes(' ')) { const w = o.text[0].split(' '); let best = 1, bd = 1e9; for (let i = 1; i < w.length; i++) { const d = Math.abs(w.slice(0, i).join(' ').length - o.text[0].length / 2); if (d < bd) { bd = d; best = i; } } lines = [w.slice(0, best).join(' '), w.slice(best).join(' ')]; }
+      const ns = Math.min(...lines.map(l => fit(l, h * .05, 400, DISPLAY)));
+      lines.forEach((l, i) => txt(l, x, ly + lh * (lines.length === 1 ? .4 : .34 + i * .15), ns, '#2b1423', 'center', 400, DISPLAY));
+      txt('CARMÉNÈRE', x, ly + lh * .66, fit('CARMÉNÈRE', h * .034, 800, FONT), '#cf2f4a', 'center', 800);
+      txt(o.text[1], x, ly + lh * .8, fit(o.text[1], h * .022, 600, FONT), '#5a3349', 'center', 600);
+      txt(o.text[2], x, ly + lh * .91, fit(o.text[2], h * .022, 600, FONT), '#5a3349', 'center', 600);
+    } else { ctx.fillStyle = '#5a3349'; ctx.fillRect(x - lw * .3, ly + lh * .5, lw * .6, 2); ctx.fillRect(x - lw * .2, ly + lh * .68, lw * .4, 2); }
+    ctx.globalAlpha = 1;
+  }
+}
+
+/* Efectos: partículas y textos flotantes */
+const fx = {
+  p: [],
+  burst(x, y, color, n = 10) { for (let i = 0; i < n; i++) { const a = rnd(0, TAU), v = rnd(40, 170); this.p.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60, life: rnd(.35, .7), t: 0, color, r: rnd(2, 4.5) }); } },
+  text(x, y, s, color = '#fff') { this.p.push({ x: clamp(x, 60, W - 60), y, vx: 0, vy: -42, life: 1, t: 0, color, s }); },
+  update(dt) { for (const p of this.p) { p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; if (!p.s) p.vy += 420 * dt; } this.p = this.p.filter(p => p.t < p.life); },
+  draw() {
+    for (const p of this.p) {
+      const al = 1 - p.t / p.life;
+      if (p.s) { ctx.globalAlpha = Math.min(1, al * 2); ctx.font = `800 15px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(29,13,24,.85)'; ctx.strokeText(p.s, p.x, p.y); ctx.fillStyle = p.color; ctx.fillText(p.s, p.x, p.y); }
+      else { ctx.globalAlpha = al; ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, TAU); ctx.fill(); }
+    }
+    ctx.globalAlpha = 1;
+  }
+};
+const GOOD = '#b6f08c', BAD = '#ff9a8a', GOLD = '#ffd774';
+
+/* ============================================================
+   Contenido de las ocho etapas
+   ============================================================ */
+const LEVELS = [
+  { phase: 'Investigar', title: 'El misterio del Merlot', tag: 'Alto Jahuel, Valle del Maipo, 1994',
+    story: 'Tu Merlot siempre fue distinto: madura tarde y recuerda al pimentón. Un ampelógrafo francés acaba de notar algo en un viñedo vecino. Revisa tus parras en primavera: los brotes jóvenes del Merlot son verde pálido; los de la cepa desconocida tienen tonos rojizos.',
+    how: 'Toca las parras con brotes rojizos. En cada ronda la diferencia es más sutil.',
+    fact: 'El 24 de noviembre de 1994, el ampelógrafo francés Jean-Michel Boursiquot identificó en un viñedo de Alto Jahuel, Valle del Maipo, que parte del llamado Merlot chileno era en realidad Carménère.' },
+  { phase: 'Investigar', title: 'Lo básico del viñedo', tag: 'Abastecimiento',
+    story: 'Confirmado: entre tus hileras hay Carménère. Para producirlo como corresponde necesitas plantas identificadas, postes para la espaldera, goteros de riego, tijeras de podar y cajas cosecheras.',
+    how: 'Arrastra la carreta para recibir lo que falta en tu lista. Esquiva la maleza y la arañita roja.',
+    fact: 'El Carménère llegó a Chile a mediados del siglo XIX, mezclado entre estacas traídas desde Burdeos. Poco después la filoxera arrasó los viñedos europeos y la cepa casi desapareció de Francia. Chile se ha mantenido libre de esa plaga.' },
+  { phase: 'Viñedo', title: 'Riego y deshoje', tag: 'Manejo del viñedo',
+    story: 'El Carménère es una cepa vigorosa. Con agua de más o con los racimos a la sombra, el vino resulta herbáceo. Mantén el suelo en su punto y la fruta al sol.',
+    how: 'Toca la base de la parra para regar. Toca las hojas que tapan el racimo para retirarlas.',
+    fact: 'Las pirazinas son los compuestos que dan al Carménère su nota de pimentón verde. El exceso de vigor y la sombra sobre los racimos las acentúan; el riego controlado y el deshoje ayudan a reducirlas.' },
+  { phase: 'Viñedo', title: 'La vendimia tardía', tag: 'Cosecha, de febrero a mayo',
+    story: 'El Merlot madura primero. El Carménère necesita varias semanas más de sol. Cosecharlos juntos fue el error de décadas: la mitad de la uva entraba verde a la bodega.',
+    how: 'Toca cada racimo cuando esté oscuro y brillante. Verde o rosado: falta. Arrugado: tarde.',
+    fact: 'El Carménère es una de las cepas tintas más tardías: se cosecha varias semanas después que el Merlot, por lo general entre fines de abril y mayo. En otoño sus hojas se tiñen de carmín, color al que se atribuye su nombre.' },
+  { phase: 'Bodega', title: 'Mesa de selección', tag: 'Recepción de la uva',
+    story: 'Solo la mejor fruta entra a la cuba. Hojas, escobajos, uvas verdes y uvas con pudrición deben salir de la cinta antes del despalillado.',
+    how: 'Toca todo lo que no sea uva sana antes de que llegue a la despalilladora.',
+    fact: 'El despalillado separa las bayas del escobajo, el esqueleto leñoso del racimo. Si los tallos verdes llegaran a la cuba, sumarían amargor y notas vegetales al vino.' },
+  { phase: 'Bodega', title: 'Fermentación', tag: 'Cuba de acero inoxidable',
+    story: 'Las levaduras convierten el azúcar en alcohol y generan calor. Entre 24 y 28 °C extraen color y aroma; fuera de ese rango la fermentación se resiente.',
+    how: 'Mantén presionado Enfriar para bajar la temperatura. Usa Remontaje antes de que el sombrero se seque.',
+    fact: 'Durante la fermentación, los hollejos suben y forman una capa llamada sombrero. El remontaje bombea el mosto desde el fondo de la cuba para mojarlo y así extraer color y taninos.' },
+  { phase: 'Bodega', title: 'Crianza en barrica', tag: 'Sala de barricas',
+    story: 'Doce meses en roble afinan los taninos. En cada cata el vino muestra un aroma nuevo, y un buen enólogo los reconoce en orden.',
+    how: 'Observa la secuencia de aromas y repítela tocando las barricas. Cada acierto suma dos meses de crianza.',
+    fact: 'Un Carménère bien maduro entrega frutos negros como mora y ciruela, pimienta negra y pimentón rojo. La barrica de roble aporta notas de chocolate, tabaco y vainilla, y suaviza los taninos.' },
+  { phase: 'Bodega', title: 'Embotellado y etiqueta', tag: 'Línea de embotellado',
+    story: 'Durante años este vino se vendió como Merlot. Desde 1998 la cepa puede figurar en la etiqueta. Llegó el momento de embotellar tu Carménère con su nombre verdadero.',
+    how: 'Mantén presionado Llenar y suelta cuando el vino quede entre las dos marcas doradas.',
+    fact: 'En 1998 el Ministerio de Agricultura de Chile reconoció oficialmente al Carménère como variedad. Hoy Chile concentra la mayor superficie plantada del mundo y cada 24 de noviembre se celebra el Día del Carménère.' }
+];
+
+/* ============================================================
+   Estado general y HUD
+   ============================================================ */
+let cur = null;          // { i, scene }
+let paused = false;
+let ambientMood = 'sunset';
+let finalView = false;
+let clock = 0;
+let runId = 0;
+
+function hud(frac, score) {
+  elHudBar.style.transform = `scaleX(${clamp(frac, 0, 1).toFixed(3)})`;
+  if (elHudScore.textContent !== score) elHudScore.textContent = score;
+}
+let toastTimer = 0;
+function toast(msg, ms = 1500) { elToast.textContent = msg; elToast.classList.add('on'); clearTimeout(toastTimer); toastTimer = setTimeout(() => elToast.classList.remove('on'), ms); }
+function setControls(html) { elControls.innerHTML = html; elControls.hidden = !html; BOT = html ? 92 : 16; }
+function holdButton(sel, on) {
+  const b = elControls.querySelector(sel); if (!b) return;
+  const set = v => e => { if (e) e.preventDefault(); b.classList.toggle('held', v); on(v); };
+  b.addEventListener('pointerdown', set(true)); b.addEventListener('pointerup', set(false)); b.addEventListener('pointercancel', set(false)); b.addEventListener('pointerleave', set(false));
+  b.addEventListener('keydown', e => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) set(true)(e); });
+  b.addEventListener('keyup', e => { if (e.key === ' ' || e.key === 'Enter') set(false)(e); });
+  b.addEventListener('contextmenu', e => e.preventDefault());
+}
+
+/* ============================================================
+   Etapa 1. Investigación: identificar el Carménère
+   ============================================================ */
+function level1() {
+  const R = [{ c: 4, sub: 1, time: 18 }, { c: 5, sub: .6, time: 17 }, { c: 5, sub: .4, time: 16 }];
+  const TOTAL = 14, MERLOT = [214, 230, 172], CARM = [196, 66, 44];
+  const S = { round: 0, left: 0, found: 0, wrong: 0, saved: 0, v: [], wait: 0, roundFound: 0 };
+  function setup() {
+    const r = R[S.round], ids = shuffle([...Array(12).keys()]).slice(0, r.c);
+    S.v = []; for (let i = 0; i < 12; i++) S.v.push({ col: i % 3, row: i / 3 | 0, car: ids.includes(i), found: false, shake: 0, ph: rnd(0, 6) });
+    S.left = r.time; S.roundFound = 0; toast(`Ronda ${S.round + 1} de 3`);
+  }
+  function geo(v) { const top = H * .33, cw = (W - 24) / 3, ch = (H - top - 14) / 4; return { x: 12 + cw * (v.col + .5), y: top + ch * (v.row + 1) - 6, cw, ch, s: Math.min(cw / 104, ch / 96) }; }
+  const pts = () => Math.max(0, S.found * 100 - S.wrong * 40 + Math.round(S.saved * 5));
+  setup();
+  return {
+    update(dt) {
+      for (const v of S.v) v.shake = Math.max(0, v.shake - dt);
+      if (S.wait > 0) {
+        S.wait -= dt;
+        if (S.wait <= 0) {
+          if (S.round >= R.length - 1) {
+            const ratio = clamp((S.found - .5 * S.wrong) / TOTAL, 0, 1) * .85 + .15 * clamp(S.saved / 22, 0, 1);
+            return endLevel(ratio, `Identificaste ${S.found} de ${TOTAL} parras de Carménère, con ${S.wrong} ${S.wrong === 1 ? 'error' : 'errores'}.`);
+          }
+          S.round++; setup();
+        }
+        return;
+      }
+      S.left -= dt;
+      if (S.left <= 0) { S.left = 0; S.wait = 1.4; toast('Se acabó el tiempo de la ronda'); }
+      hud(S.left / R[S.round].time, pts() + ' pts');
+    },
+    draw(t) {
+      backdrop(t, 'day', .27, .5);
+      const tip = mix(MERLOT, CARM, R[S.round].sub);
+      for (const v of S.v) {
+        const g = geo(v), dx = v.shake > 0 ? Math.sin(v.shake * 50) * 4 : 0;
+        vine(g.x + dx, g.y, g.s, t, { ph: v.ph, tip: rgb(v.car ? tip : MERLOT) });
+        if (v.found || (S.wait > 0 && v.car)) {
+          ctx.strokeStyle = v.found ? '#cf2f4a' : '#ffd774'; ctx.lineWidth = 3; ctx.setLineDash(v.found ? [] : [5, 4]);
+          ctx.beginPath(); ctx.ellipse(g.x, g.y - 44 * g.s, 38 * g.s, 42 * g.s, 0, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+          if (v.found) label('Carménère', g.x, g.y - 6, 11, '#fff', '#cf2f4a');
+        }
+      }
+      label(`Carménère por encontrar: ${R[S.round].c - S.roundFound}`, W / 2, TOP + 22, 13);
+    },
+    down(x, y) {
+      if (S.wait > 0) return;
+      for (const v of S.v) {
+        const g = geo(v);
+        if (Math.abs(x - g.x) < g.cw / 2 && y < g.y + 8 && y > g.y - g.ch + 8) {
+          if (v.found) return;
+          if (v.car) {
+            v.found = true; S.found++; S.roundFound++; sfx.ok(); fx.burst(g.x, g.y - 60 * g.s, '#e0553a', 12); fx.text(g.x, g.y - 70 * g.s, '+100', GOOD);
+            if (S.roundFound >= R[S.round].c) { S.saved += S.left; S.wait = 1; toast('Ronda completa'); }
+          } else { v.shake = .35; S.wrong++; sfx.bad(); fx.text(g.x, g.y - 70 * g.s, 'Es Merlot', BAD); }
+          return;
+        }
+      }
+    }
+  };
+}
+
+/* ============================================================
+   Etapa 2. Abastecimiento: reunir lo básico
+   ============================================================ */
+function item(k, x, y, s) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s); ctx.lineCap = 'round';
+  if (k === 'planta') {
+    ctx.fillStyle = '#9a5b3c'; ctx.beginPath(); ctx.moveTo(-10, 3); ctx.lineTo(10, 3); ctx.lineTo(7, 17); ctx.lineTo(-7, 17); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#3f7a2c'; ctx.lineWidth = 2.5; line(0, 3, 0, -10); leaf(-7, -8, 8, -.8, '#5aa53e'); leaf(7, -13, 8, .7, '#6bb84a');
+  } else if (k === 'poste') {
+    ctx.fillStyle = '#8a6240'; ctx.fillRect(-3.5, -17, 7, 34); ctx.fillStyle = '#6f4c30'; ctx.fillRect(-3.5, -17, 7, 4);
+    ctx.strokeStyle = '#d5d9dc'; ctx.lineWidth = 1.5; line(-15, -8, 15, -8); line(-15, 3, 15, 3);
+  } else if (k === 'riego') {
+    ctx.strokeStyle = '#1f1f24'; ctx.lineWidth = 5; line(-15, -9, 15, -9); ctx.fillStyle = '#4a4a55'; ctx.fillRect(-4, -13, 8, 9);
+    ctx.fillStyle = '#4fb3f0'; ctx.beginPath(); ctx.moveTo(0, -1); ctx.bezierCurveTo(8, 9, 6, 17, 0, 17); ctx.bezierCurveTo(-6, 17, -8, 9, 0, -1); ctx.fill();
+  } else if (k === 'tijera') {
+    ctx.fillStyle = '#c8ced4'; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-7, -17); ctx.lineTo(-1, -15); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(7, -17); ctx.lineTo(1, -15); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#cf2f4a'; ctx.lineWidth = 4.5; line(0, 0, -8, 15); line(0, 0, 8, 15);
+    ctx.fillStyle = '#4a4a55'; ctx.beginPath(); ctx.arc(0, 0, 2.6, 0, TAU); ctx.fill();
+  } else if (k === 'caja') {
+    ctx.fillStyle = '#c79a5e'; ctx.fillRect(-15, -9, 30, 20); ctx.strokeStyle = '#8a6240'; ctx.lineWidth = 1.5; ctx.strokeRect(-15, -9, 30, 20);
+    line(-15, -2, 15, -2); line(-15, 5, 15, 5); ctx.fillStyle = '#8a6240'; ctx.fillRect(-5, -6, 10, 3);
+  } else if (k === 'maleza') {
+    ctx.strokeStyle = '#a79a34'; ctx.lineWidth = 2.5;
+    for (let i = -3; i <= 3; i++) { const a = i * .33; line(0, 15, Math.sin(a) * 26, 15 - Math.cos(a) * (26 - Math.abs(i) * 2)); }
+    ctx.fillStyle = '#d9c64a'; ctx.beginPath(); ctx.arc(0, -12, 3.5, 0, TAU); ctx.fill();
+  } else if (k === 'plaga') {
+    ctx.strokeStyle = '#3a1210'; ctx.lineWidth = 1.8;
+    for (let i = 0; i < 4; i++) { const a = -.9 + i * .6; line(0, 0, Math.cos(a) * 15, Math.sin(a) * 13); line(0, 0, -Math.cos(a) * 15, Math.sin(a) * 13); }
+    ctx.fillStyle = '#b3261e'; ctx.beginPath(); ctx.ellipse(0, 0, 9, 11, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#6e120e'; ctx.beginPath(); ctx.arc(0, -8, 4.5, 0, TAU); ctx.fill();
+  }
+  ctx.restore();
+}
+function level2() {
+  const NEED = [{ k: 'planta', n: 'Plantas', q: 4 }, { k: 'poste', n: 'Postes', q: 3 }, { k: 'riego', n: 'Goteros', q: 3 }, { k: 'tijera', n: 'Tijeras', q: 2 }, { k: 'caja', n: 'Cajas', q: 2 }];
+  const BADS = [{ k: 'maleza', n: 'Maleza' }, { k: 'plaga', n: 'Arañita roja' }];
+  const D = 55, TOTAL = 14;
+  const S = { t: 0, have: {}, got: 0, err: 0, items: [], next: .5, cart: W / 2, target: W / 2, done: false, bump: 0 };
+  NEED.forEach(n => S.have[n.k] = 0);
+  const cartY = () => H - 62;
+  function finish(msg) {
+    if (S.done) return; S.done = true;
+    const ratio = clamp(S.got / TOTAL - S.err * .12 + (S.got >= TOTAL ? .12 * (1 - S.t / D) : 0), 0, 1);
+    endLevel(ratio, `${msg} Reuniste ${S.got} de ${TOTAL} insumos, con ${S.err} ${S.err === 1 ? 'tropiezo' : 'tropiezos'}.`);
+  }
+  return {
+    update(dt) {
+      if (S.done) return;
+      S.t += dt; S.bump = Math.max(0, S.bump - dt);
+      S.cart = lerp(S.cart, S.target, 1 - Math.pow(.0005, dt));
+      S.next -= dt;
+      if (S.next <= 0) {
+        S.next = lerp(.75, .5, S.t / D);
+        const pend = NEED.filter(n => S.have[n.k] < n.q);
+        const bad = Math.random() < .3 || !pend.length;
+        const d = bad ? pick(BADS) : pick(pend);
+        S.items.push({ k: d.k, n: d.n, bad, x: rnd(34, W - 34), y: TOP + 50, v: rnd(135, 190) + S.t * 1.6, rot: rnd(-.3, .3) });
+      }
+      const cy = cartY();
+      for (const it of S.items) {
+        it.y += it.v * dt;
+        if (!it.dead && it.y > cy - 26 && it.y < cy + 6 && Math.abs(it.x - S.cart) < 50) {
+          it.dead = true;
+          if (it.bad) { S.err++; S.bump = .4; sfx.bad(); fx.text(it.x, cy - 40, it.n, BAD); fx.burst(it.x, cy - 20, '#b3261e', 8); if (S.err >= 3) return finish('La carreta quedó infestada.'); }
+          else {
+            const need = NEED.find(n => n.k === it.k);
+            if (S.have[it.k] < need.q) { S.have[it.k]++; S.got++; sfx.ok(); fx.text(it.x, cy - 40, '+1 ' + it.n, GOOD); fx.burst(it.x, cy - 20, '#e6b450', 8); if (S.got >= TOTAL) return finish('Lista completa.'); }
+            else fx.text(it.x, cy - 40, 'Ya tienes', '#fff');
+          }
+        }
+      }
+      S.items = S.items.filter(it => !it.dead && it.y < H + 30);
+      if (S.t >= D) return finish('Se acabó la jornada.');
+      hud(1 - S.t / D, `${S.got}/${TOTAL}`);
+    },
+    draw(t) {
+      backdrop(t, 'dawn', .3, .35);
+      // lista de insumos
+      const cw = (W - 24) / 5;
+      NEED.forEach((n, i) => {
+        const x = 12 + cw * (i + .5), ok = S.have[n.k] >= n.q;
+        ctx.fillStyle = ok ? 'rgba(60,110,45,.9)' : 'rgba(29,13,24,.8)'; rr(x - cw / 2 + 3, TOP + 6, cw - 6, 34, 8); ctx.fill();
+        item(n.k, x - cw * .2, TOP + 23, .58);
+        txt(`${S.have[n.k]}/${n.q}`, x + cw * .16, TOP + 23, 13, '#fff');
+      });
+      for (const it of S.items) {
+        ctx.save(); ctx.translate(it.x, it.y); ctx.rotate(it.rot + Math.sin(t * 3 + it.x) * .12); ctx.translate(-it.x, -it.y);
+        ctx.fillStyle = it.bad ? 'rgba(90,20,20,.35)' : 'rgba(255,255,255,.35)'; ctx.beginPath(); ctx.arc(it.x, it.y, 25, 0, TAU); ctx.fill();
+        item(it.k, it.x, it.y, 1.05); ctx.restore();
+        label(it.n, it.x, it.y + 36, 11);
+      }
+      // carreta
+      const x = S.cart + (S.bump > 0 ? Math.sin(S.bump * 60) * 4 : 0), y = cartY();
+      ctx.fillStyle = 'rgba(40,25,10,.25)'; ctx.beginPath(); ctx.ellipse(x, y + 30, 54, 7, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#6b4324'; ctx.beginPath(); ctx.moveTo(x - 52, y - 12); ctx.lineTo(x + 52, y - 12); ctx.lineTo(x + 42, y + 18); ctx.lineTo(x - 42, y + 18); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#3d2614'; ctx.lineWidth = 2; for (let i = -1; i <= 1; i++) line(x + i * 24, y - 12, x + i * 21, y + 18); line(x - 49, y + 2, x + 49, y + 2);
+      ctx.fillStyle = '#3d2614'; ctx.fillRect(x - 55, y - 15, 110, 5);
+      ctx.fillStyle = '#2a1c14'; [-30, 30].forEach(d => { ctx.beginPath(); ctx.arc(x + d, y + 22, 10, 0, TAU); ctx.fill(); });
+      ctx.fillStyle = '#b89a6a'; [-30, 30].forEach(d => { ctx.beginPath(); ctx.arc(x + d, y + 22, 3.5, 0, TAU); ctx.fill(); });
+      if (S.err) label(`Tropiezos: ${S.err} de 3`, W / 2, TOP + 58, 12, '#fff', 'rgba(150,30,30,.85)');
+    },
+    down(x) { S.target = clamp(x, 50, W - 50); },
+    move(x) { S.target = clamp(x, 50, W - 50); }
+  };
+}
+
+/* ============================================================
+   Etapa 3. Manejo del viñedo: riego y deshoje
+   ============================================================ */
+function level3() {
+  const D = 42, LO = .4, HI = .75;
+  const S = { t: 0, good: 0, v: [] };
+  for (let i = 0; i < 4; i++) S.v.push({ w: rnd(.5, .65), dec: rnd(.03, .042), leaves: i === 1 ? 1 : 0, next: rnd(3, 7), ph: rnd(0, 6), splash: 0 });
+  function geo(i) { const top = H * .25, cw = (W - 20) / 2, ch = (H - top - 12) / 2; const s = Math.min(cw / 128, ch / 150); return { cx: 10 + cw * (i % 2 + .5), base: top + ch * ((i >> 1) + 1) - 40 * s, cw, ch, s, left: 10 + cw * (i % 2), topY: top + ch * (i >> 1) }; }
+  return {
+    update(dt) {
+      S.t += dt;
+      for (const v of S.v) {
+        v.w = clamp(v.w - v.dec * dt, 0, 1); v.splash = Math.max(0, v.splash - dt);
+        v.next -= dt; if (v.next <= 0) { v.next = rnd(5, 9) - S.t * .04; if (v.leaves < 3) v.leaves++; }
+        if (v.w >= LO && v.w <= HI && v.leaves === 0) S.good += dt;
+      }
+      const pct = Math.round(100 * S.good / (4 * Math.max(S.t, .01)));
+      hud(1 - S.t / D, pct + ' %');
+      if (S.t >= D) { const r = S.good / (4 * D); endLevel(clamp(r / .8, 0, 1), `Tus parras estuvieron en equilibrio el ${Math.round(r * 100)} % del tiempo.`); }
+    },
+    draw(t) {
+      backdrop(t, 'day', .2, .5);
+      S.v.forEach((v, i) => {
+        const g = geo(i), s = g.s, dry = v.w < LO, wet = v.w > HI;
+        // suelo
+        ctx.fillStyle = rgb(mix([196, 150, 100], [92, 62, 40], v.w)); ctx.beginPath(); ctx.ellipse(g.cx, g.base + 6 * s, 52 * s, 13 * s, 0, 0, TAU); ctx.fill();
+        if (wet) { ctx.fillStyle = 'rgba(90,170,230,.55)'; ctx.beginPath(); ctx.ellipse(g.cx + 8 * s, g.base + 8 * s, 36 * s * clamp((v.w - HI) * 4, .2, 1), 7 * s, 0, 0, TAU); ctx.fill(); }
+        vine(g.cx, g.base, s * 1.25, t, { ph: v.ph, droop: dry, leaf: dry ? '#9aa24a' : '#4f9a3a', leaf2: dry ? '#8a9040' : '#3f8530' });
+        // racimo y hojas que lo tapan
+        const bx = g.cx + 12 * s, by = g.base - 36 * s;
+        bunch(bx, by, s * 1.05, [72, 24, 86], v.leaves ? 0 : 1);
+        for (let k = 0; k < v.leaves; k++) leaf(bx + [-7, 9, 0][k] * s, by + [6, 14, 24][k] * s, 19 * s, [-.4, .5, .1][k] + Math.sin(t * 2 + k) * .05, ['#2f6d27', '#28632a', '#347a2c'][k]);
+        // gotero
+        ctx.strokeStyle = '#1f1f24'; ctx.lineWidth = 4 * s; line(g.cx - 46 * s, g.base - 8 * s, g.cx + 46 * s, g.base - 8 * s);
+        ctx.fillStyle = '#4a4a55'; ctx.fillRect(g.cx - 26 * s, g.base - 12 * s, 8 * s, 8 * s);
+        if (v.splash > 0) { ctx.fillStyle = '#6cc4f5'; for (let k = 0; k < 3; k++) { const p = ((1 - v.splash / .5) + k * .33) % 1; ctx.beginPath(); ctx.arc(g.cx - 22 * s, g.base - 4 * s + p * 12 * s, 2.6 * s, 0, TAU); ctx.fill(); } }
+        // medidor de humedad
+        const mx = g.left + 12, mh = g.ch * .5, my = g.base - mh + 4;
+        ctx.fillStyle = 'rgba(29,13,24,.75)'; rr(mx - 6, my - 4, 12, mh + 8, 6); ctx.fill();
+        ctx.fillStyle = 'rgba(127,191,90,.85)'; ctx.fillRect(mx - 3, my + mh * (1 - HI), 6, mh * (HI - LO));
+        ctx.fillStyle = dry ? '#ffb199' : wet ? '#7fc8f8' : '#fff'; ctx.fillRect(mx - 6, my + mh * (1 - v.w) - 2, 12, 4);
+        // estado
+        const st = v.leaves ? 'Racimo a la sombra' : dry ? 'Suelo seco' : wet ? 'Exceso de agua' : 'En equilibrio';
+        const okc = !v.leaves && !dry && !wet;
+        label(st, g.cx, g.base + 28 * s, 11, '#fff', okc ? 'rgba(60,110,45,.92)' : 'rgba(150,40,40,.9)');
+      });
+    },
+    down(x, y) {
+      for (let i = 0; i < 4; i++) {
+        const g = geo(i), v = S.v[i];
+        if (x >= g.left && x < g.left + g.cw && y >= g.topY && y < g.topY + g.ch) {
+          if (y < g.base - 14 * g.s) {
+            if (v.leaves > 0) { v.leaves--; sfx.tap(); fx.burst(x, y, '#3f8530', 7); fx.text(x, y - 16, 'Deshoje', GOOD); }
+          } else { v.w = clamp(v.w + .2, 0, 1); v.splash = .5; sfx.drop(); fx.text(g.cx, g.base - 20 * g.s, v.w > HI ? 'Demasiada agua' : 'Riego', v.w > HI ? BAD : '#bfe6ff'); }
+          return;
+        }
+      }
+    }
+  };
+}
+
+/* ============================================================
+   Etapa 4. Vendimia: cosechar en el punto de madurez
+   ============================================================ */
+function ripeColor(r) {
+  const G = [140, 190, 74], P = [200, 92, 140], V = [58, 18, 70], B = [96, 62, 44];
+  if (r < .35) return G; if (r < .58) return mix(G, P, (r - .35) / .23); if (r < .75) return mix(P, V, (r - .58) / .17); if (r <= 1) return V; return mix(V, B, clamp((r - 1) / .2, 0, 1));
+}
+function level4() {
+  const D = 50, MONTHS = ['Febrero', 'Marzo', 'Abril', 'Mayo'];
+  const S = { t: 0, b: [], sum: 0, n: 0, fly: [], end: false };
+  for (let i = 0; i < 12; i++) {
+    const row = i / 4 | 0, mer = row === 0;
+    S.b.push({ row, col: i % 4, mer, t0: mer ? rnd(0, 4) : rnd(15, 23), d: mer ? rnd(16, 20) : rnd(19, 24), state: 0, ph: rnd(0, 6) });
+  }
+  const rip = b => (S.t - b.t0) / b.d;
+  function geo(b) { const top = H * .34, rh = (H - top - 96) / 3; return { x: W * (.17 + .22 * b.col), y: top + rh * b.row + 26, wy: top + rh * b.row, s: Math.min(1.3, rh / 78) }; }
+  const basket = () => ({ x: W / 2, y: H - 44 });
+  return {
+    update(dt) {
+      S.t += dt;
+      for (const b of S.b) if (b.state === 0 && rip(b) > 1.25) { b.state = 2; S.n++; const g = geo(b); fx.text(g.x, g.y, 'Se perdió', BAD); }
+      for (const f of S.fly) f.p += dt * 2.2;
+      S.fly = S.fly.filter(f => f.p < 1);
+      hud(1 - S.t / D, `${Math.round(S.sum * 100)} pts`);
+      if (!S.end && (S.t >= D || S.n >= 12)) { S.end = true; endLevel(clamp(S.sum / 12, 0, 1), `Cosechaste ${S.b.filter(b => b.q === 1).length} de 12 racimos en su punto exacto de madurez.`); }
+    },
+    draw(t) {
+      backdrop(t, 'autumn', .27, .5);
+      // calendario
+      const mw = (W - 24) / 4, mp = clamp(S.t / D, 0, 1);
+      ctx.fillStyle = 'rgba(29,13,24,.8)'; rr(12, TOP + 6, W - 24, 30, 8); ctx.fill();
+      ctx.fillStyle = 'rgba(207,47,74,.75)'; rr(12, TOP + 6, Math.max(16, (W - 24) * mp), 30, 8); ctx.fill();
+      MONTHS.forEach((m, i) => txt(m, 12 + mw * (i + .5), TOP + 21, 12, '#fff'));
+      const turn = clamp((S.t - 30) / 15, 0, 1);
+      for (let row = 0; row < 3; row++) {
+        const g = geo({ row, col: 0 }), mer = row === 0;
+        ctx.strokeStyle = '#6b4a2f'; ctx.lineWidth = 5; line(8, g.wy - 10, 8, g.wy + 60); line(W - 8, g.wy - 10, W - 8, g.wy + 60);
+        ctx.strokeStyle = '#d5d9dc'; ctx.lineWidth = 1.5; line(8, g.wy, W - 8, g.wy);
+        const lc = mer ? [79, 154, 58] : mix([79, 154, 58], [190, 52, 46], turn);
+        for (let k = 0; k < 11; k++) leaf(W * (.06 + k * .088), g.wy + (k % 2 ? 4 : -3), 15 * g.s, Math.sin(t * 1.3 + k + row) * .1 * MS + (k % 3 - 1) * .4, rgb(mix(lc, [0, 0, 0], (k % 2) * .12)));
+        label(mer ? 'Merlot' : 'Carménère', 12 + (mer ? 30 : 42), g.wy - 20, 11, '#fff', mer ? 'rgba(29,13,24,.8)' : 'rgba(207,47,74,.92)');
+      }
+      for (const b of S.b) {
+        if (b.state) continue;
+        const g = geo(b), r = rip(b), ready = r >= .75 && r <= 1;
+        bunch(g.x + Math.sin(t * 1.6 + b.ph) * 1.5 * MS, g.y, g.s * 1.15, ripeColor(r), ready ? 1 : 0, clamp((r - 1) / .25, 0, 1));
+      }
+      const k = basket();
+      for (const f of S.fly) { const x = lerp(f.x, k.x, f.p), y = lerp(f.y, k.y - 20, f.p) - Math.sin(f.p * Math.PI) * 70; bunch(x, y, 1 - f.p * .3, f.c, 1); }
+      // canasto
+      ctx.fillStyle = '#8a5a2b'; ctx.beginPath(); ctx.moveTo(k.x - 46, k.y - 16); ctx.lineTo(k.x + 46, k.y - 16); ctx.lineTo(k.x + 36, k.y + 24); ctx.lineTo(k.x - 36, k.y + 24); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#5f3c1a'; ctx.lineWidth = 2; for (let i = 0; i < 3; i++) line(k.x - 44 + i * 3, k.y - 6 + i * 10, k.x + 44 - i * 3, k.y - 6 + i * 10);
+      ctx.fillStyle = '#5f3c1a'; ctx.fillRect(k.x - 49, k.y - 19, 98, 6);
+      txt(`${S.b.filter(b => b.state === 1).length} racimos`, k.x, k.y + 5, 13, '#fff', 'center', 800);
+    },
+    down(x, y) {
+      let best = null, bd = 44;
+      for (const b of S.b) { if (b.state) continue; const g = geo(b), d = Math.hypot(x - g.x, y - (g.y + 16 * g.s)); if (d < bd) { bd = d; best = b; } }
+      if (!best) return;
+      const g = geo(best), r = rip(best); best.state = 1; S.n++;
+      let q, msg, col;
+      if (r < .5) { q = 0; msg = 'Muy verde'; col = BAD; } else if (r < .75) { q = .3; msg = 'Falta sol: pimentón verde'; col = BAD; }
+      else if (r <= 1) { q = 1; msg = 'En su punto'; col = GOOD; } else { q = .4; msg = 'Sobremadura'; col = GOLD; }
+      best.q = q; S.sum += q; q === 1 ? sfx.ok() : sfx.bad();
+      fx.text(g.x, g.y - 14, msg, col); S.fly.push({ x: g.x, y: g.y, p: 0, c: ripeColor(r) });
+    }
+  };
+}
+
+/* ============================================================
+   Etapa 5. Mesa de selección
+   ============================================================ */
+function sortItem(k, x, y, t) {
+  if (k === 'uva') bunch(x, y - 14, 1.15, [66, 22, 84], 1);
+  else if (k === 'verde') bunch(x, y - 14, 1.15, [150, 196, 80], .6);
+  else if (k === 'podrida') { bunch(x, y - 14, 1.15, [112, 96, 84], 0, .6); ctx.fillStyle = 'rgba(215,215,205,.75)'; [[-7, -8], [5, 0], [-2, 10], [8, -12]].forEach(p => { ctx.beginPath(); ctx.arc(x + p[0], y + p[1], 3.4, 0, TAU); ctx.fill(); }); }
+  else if (k === 'hoja') leaf(x, y, 21, Math.sin(t + x) * .3, '#4f9a3a');
+  else if (k === 'escobajo') {
+    ctx.strokeStyle = '#7b8a3e'; ctx.lineWidth = 3; ctx.lineCap = 'round'; line(x, y - 20, x, y + 18);
+    [[-12, -8, -2], [12, -3, 4], [-10, 6, 12], [9, 10, 16]].forEach(p => line(x, y + p[1], x + p[0], y + p[2]));
+  }
+}
+function level5() {
+  const D = 38, NAMES = { hoja: 'Hoja', escobajo: 'Escobajo', verde: 'Uva verde', podrida: 'Pudrición' };
+  const S = { t: 0, items: [], next: .4, bad: 0, removed: 0, wrong: 0, missed: 0, end: false, lastLane: -1 };
+  const belt = () => ({ x: W * .08, w: W * .84, y: TOP + 12, b: H - 92 });
+  return {
+    update(dt) {
+      S.t += dt; const B = belt(), sp = lerp(105, 180, clamp(S.t / D, 0, 1));
+      S.next -= dt;
+      if (S.next <= 0 && S.t < D - 2.5) {
+        S.next = lerp(.62, .38, S.t / D);
+        let lane; do { lane = Math.floor(Math.random() * 3); } while (lane === S.lastLane); S.lastLane = lane;
+        const good = Math.random() < .55, k = good ? 'uva' : pick(['hoja', 'escobajo', 'verde', 'podrida']);
+        if (!good) S.bad++;
+        S.items.push({ k, good, lane, y: B.y - 20, out: 0, dir: lane === 0 ? -1 : lane === 2 ? 1 : (Math.random() < .5 ? -1 : 1) });
+      }
+      for (const it of S.items) {
+        if (it.out > 0) { it.out += dt * 3; continue; }
+        it.y += sp * dt;
+        if (it.y > B.b - 6) { it.gone = true; if (!it.good) { S.missed++; sfx.bad(); fx.text(B.x + B.w * (it.lane * 2 + 1) / 6, B.b - 24, 'Se coló: ' + NAMES[it.k], BAD); } }
+      }
+      S.items = S.items.filter(it => !it.gone && it.out < 1);
+      hud(1 - S.t / D, `${S.removed}/${S.bad}`);
+      if (!S.end && S.t > D - 2 && !S.items.length) { S.end = true; endLevel(clamp((S.removed - .6 * S.wrong) / Math.max(1, S.bad), 0, 1), `Retiraste ${S.removed} de ${S.bad} impurezas y descartaste ${S.wrong} ${S.wrong === 1 ? 'racimo sano' : 'racimos sanos'} por error.`); }
+    },
+    draw(t) {
+      cellar(t); const B = belt(), sp = lerp(105, 180, clamp(S.t / D, 0, 1));
+      ctx.fillStyle = '#5c6068'; rr(B.x - 8, B.y - 6, B.w + 16, B.b - B.y + 12, 10); ctx.fill();
+      ctx.fillStyle = '#2c2f36'; ctx.fillRect(B.x, B.y, B.w, B.b - B.y);
+      ctx.save(); ctx.beginPath(); ctx.rect(B.x, B.y, B.w, B.b - B.y); ctx.clip();
+      ctx.strokeStyle = 'rgba(255,255,255,.07)'; ctx.lineWidth = 3;
+      const off = (S.t * sp) % 34; for (let y = B.y - 34 + off; y < B.b; y += 34) line(B.x, y, B.x + B.w, y);
+      for (const it of S.items) {
+        const x = B.x + B.w * (it.lane * 2 + 1) / 6 + it.out * it.dir * W * .5;
+        ctx.globalAlpha = 1 - it.out; ctx.save(); ctx.translate(x, it.y); ctx.rotate(it.out * it.dir * 2); sortItem(it.k, 0, 0, t); ctx.restore();
+      }
+      ctx.globalAlpha = 1; ctx.restore();
+      // despalilladora
+      ctx.fillStyle = '#8d9399'; ctx.beginPath(); ctx.moveTo(B.x - 12, B.b - 4); ctx.lineTo(B.x + B.w + 12, B.b - 4); ctx.lineTo(B.x + B.w - 18, B.b + 50); ctx.lineTo(B.x + 18, B.b + 50); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#6d737a'; ctx.fillRect(B.x - 12, B.b - 4, B.w + 24, 8);
+      ctx.strokeStyle = '#555b62'; ctx.lineWidth = 3; for (let i = 0; i < 7; i++) { const x = B.x + 30 + i * (B.w - 60) / 6, a = t * 5 + i; line(x - Math.cos(a) * 9, B.b + 24 - Math.sin(a) * 9, x + Math.cos(a) * 9, B.b + 24 + Math.sin(a) * 9); }
+      txt('DESPALILLADORA', W / 2, B.b + 66, 11, '#c3aab6', 'center', 800);
+      if (S.missed) label(`Impurezas en la cuba: ${S.missed}`, W / 2, B.y + 18, 12, '#fff', 'rgba(150,30,30,.85)');
+    },
+    down(x, y) {
+      const B = belt(); let best = null, bd = 42;
+      for (const it of S.items) { if (it.out > 0) continue; const ix = B.x + B.w * (it.lane * 2 + 1) / 6, d = Math.hypot(x - ix, y - it.y); if (d < bd) { bd = d; best = it; } }
+      if (!best) return;
+      best.out = .01;
+      if (best.good) { S.wrong++; sfx.bad(); fx.text(x, y - 20, 'Era uva sana', BAD); }
+      else { S.removed++; sfx.ok(); fx.text(x, y - 20, 'Fuera: ' + NAMES[best.k], GOOD); }
+    }
+  };
+}
+
+/* ============================================================
+   Etapa 6. Fermentación
+   ============================================================ */
+function level6() {
+  const MAXT = 60;
+  const S = { t: 0, T: 21, p: 0, q: 0, cap: .2, cool: false, pump: 0, bub: [], end: false };
+  setControls('<button class="btn" id="bCool" type="button">Enfriar</button><button class="btn" id="bPump" type="button">Remontaje</button>');
+  holdButton('#bCool', v => { S.cool = v; if (v) sfx.tap(); });
+  elControls.querySelector('#bPump').addEventListener('click', () => { if (S.pump <= 0 && !S.end) { S.pump = 1.8; sfx.drop(); } });
+  for (let i = 0; i < 26; i++) S.bub.push({ x: Math.random(), y: Math.random(), r: rnd(1.5, 4), v: rnd(.25, .6) });
+  const num = (v, d = 1) => v.toFixed(d).replace('.', ',');
+  return {
+    update(dt) {
+      if (S.end) return; S.t += dt;
+      const heat = .9 + Math.sin(Math.PI * clamp(S.p, 0, 1)) + Math.sin(S.t * 1.3) * .2;
+      S.T = clamp(S.T + (heat - (S.cool ? 3.4 : 0)) * dt, 14, 38);
+      const inBand = S.T >= 24 && S.T <= 28, far = S.T < 20 || S.T > 32;
+      S.p += dt / 36 * (inBand ? 1 : far ? .25 : .6);
+      if (S.pump > 0) { S.pump -= dt; if (S.pump <= 0) { S.cap = 0; fx.text(W / 2, H * .34, 'Sombrero húmedo', GOOD); } } else S.cap = Math.min(1, S.cap + dt / 9);
+      S.q += dt * (inBand ? 1 : (S.T < 22 || S.T > 30) ? 0 : .4) * (S.cap < .7 ? 1 : .5);
+      for (const b of S.bub) { b.y -= b.v * dt * (inBand ? 1.4 : .6); if (b.y < 0) { b.y = 1; b.x = Math.random(); } }
+      hud(S.p, Math.round(100 * S.q / S.t) + ' %');
+      if (S.p >= 1 || S.t >= MAXT) { S.end = true; const r = S.q / S.t; endLevel(clamp(r / .82, 0, 1), `La fermentación se mantuvo en condiciones óptimas el ${Math.round(r * 100)} % del tiempo y alcanzó ${num(13.8 * clamp(S.p, 0, 1))} % de alcohol.`); }
+    },
+    draw(t) {
+      cellar(t);
+      const tw = W * .52, tx = W * .42 - tw / 2, ty = TOP + 78, th = H - BOT - ty - 60;
+      // cuba
+      const sg = ctx.createLinearGradient(tx, 0, tx + tw, 0); sg.addColorStop(0, '#7d848c'); sg.addColorStop(.3, '#d5dade'); sg.addColorStop(.7, '#a9b0b6'); sg.addColorStop(1, '#6d737a');
+      ctx.fillStyle = '#4a4f55'; ctx.fillRect(tx + 10, ty + th, 10, 30); ctx.fillRect(tx + tw - 20, ty + th, 10, 30);
+      ctx.fillStyle = sg; rr(tx, ty, tw, th, 16); ctx.fill();
+      ctx.fillStyle = '#8d9399'; ctx.beginPath(); ctx.ellipse(tx + tw / 2, ty + 2, tw / 2, 12, 0, 0, TAU); ctx.fill();
+      // corte con el mosto
+      const ix = tx + 14, iw = tw - 28, iy = ty + 26, ih = th - 44;
+      ctx.save(); rr(ix, iy, iw, ih, 10); ctx.clip();
+      ctx.fillStyle = '#1b0d14'; ctx.fillRect(ix, iy, iw, ih);
+      const my = iy + ih * .14, capH = ih * .16;
+      ctx.fillStyle = '#6a1235'; ctx.fillRect(ix, my, iw, ih);
+      ctx.fillStyle = 'rgba(255,200,220,.5)'; for (const b of S.bub) { ctx.beginPath(); ctx.arc(ix + b.x * iw, my + capH + b.y * (ih * .86 - capH), b.r, 0, TAU); ctx.fill(); }
+      const capc = mix([58, 14, 44], [150, 104, 96], S.cap);
+      ctx.fillStyle = rgb(capc); ctx.beginPath(); ctx.moveTo(ix, my + capH);
+      for (let x = 0; x <= iw; x += 8) ctx.lineTo(ix + x, my + Math.sin(x * .2 + t * 2) * 2.5 * MS - 3); ctx.lineTo(ix + iw, my + capH); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = rgb(mix(capc, [0, 0, 0], .3)); for (let i = 0; i < 16; i++) { ctx.beginPath(); ctx.arc(ix + (i * 37 % 100) / 100 * iw, my + 4 + (i * 53 % 100) / 100 * (capH - 8), 3.2, 0, TAU); ctx.fill(); }
+      if (S.pump > 0) { ctx.fillStyle = '#b3305e'; for (let i = 0; i < 14; i++) { const p = (t * 1.6 + i / 14) % 1; ctx.beginPath(); ctx.arc(ix + 8 + p * (iw - 16), iy + 6 + Math.sin(p * Math.PI) * -4 + p * p * (my - iy - 6), 3, 0, TAU); ctx.fill(); } }
+      ctx.restore();
+      ctx.strokeStyle = '#555b62'; ctx.lineWidth = 3; rr(ix, iy, iw, ih, 10); ctx.stroke();
+      if (S.pump > 0) { ctx.strokeStyle = '#7a1630'; ctx.lineWidth = 6; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(tx + 6, ty + th - 14); ctx.lineTo(tx - 12, ty + th - 14); ctx.lineTo(tx - 12, ty - 8); ctx.quadraticCurveTo(tx - 12, ty - 22, tx + 14, iy + 4); ctx.stroke(); }
+      txt('Sombrero', ix + iw / 2, my + capH / 2, 12, S.cap >= .7 ? '#ffd774' : 'rgba(255,255,255,.75)');
+      if (S.cap >= .7 && S.pump <= 0) label('Sombrero seco: haz un remontaje', W / 2, ty - 18, 12, '#fff', 'rgba(150,30,30,.9)');
+      // termómetro
+      const gx = tx + tw + W * .12, gy = ty + 10, gh = th - 20, T2y = T => gy + gh * (1 - (T - 16) / 20);
+      ctx.fillStyle = 'rgba(29,13,24,.85)'; rr(gx - 16, gy - 12, 32, gh + 24, 16); ctx.fill();
+      ctx.fillStyle = 'rgba(127,191,90,.8)'; ctx.fillRect(gx - 12, T2y(28), 24, T2y(24) - T2y(28));
+      ctx.fillStyle = '#e8e2e4'; rr(gx - 4, gy, 8, gh, 4); ctx.fill();
+      const inBand = S.T >= 24 && S.T <= 28;
+      ctx.fillStyle = inBand ? '#3f9a45' : '#d6332e'; const yT = T2y(clamp(S.T, 16, 36)); rr(gx - 4, yT, 8, gy + gh - yT, 4); ctx.fill();
+      ctx.beginPath(); ctx.arc(gx, gy + gh + 2, 9, 0, TAU); ctx.fill();
+      txt('28', gx + 24, T2y(28), 11, '#fff', 'left'); txt('24', gx + 24, T2y(24), 11, '#fff', 'left');
+      // lecturas
+      ctx.fillStyle = 'rgba(29,13,24,.82)'; rr(12, TOP + 8, W - 24, 44, 10); ctx.fill();
+      txt(`${num(S.T)} °C`, 24, TOP + 30, 22, inBand ? '#b6f08c' : '#ff9a8a', 'left', 800);
+      const p = clamp(S.p, 0, 1);
+      txt(`Azúcar ${Math.round(230 - 228 * p)} g/L`, W - 24, TOP + 22, 12, '#f4eadf', 'right', 600);
+      txt(`Alcohol ${num(13.8 * p)} % vol.`, W - 24, TOP + 39, 12, '#f4eadf', 'right', 600);
+      if (S.cool) { ctx.fillStyle = 'rgba(120,200,255,.16)'; rr(tx, ty, tw, th, 16); ctx.fill(); }
+    }
+  };
+}
+
+/* ============================================================
+   Etapa 7. Crianza en barrica: secuencia de aromas
+   ============================================================ */
+function level7() {
+  const A = [{ n: 'Mora', c: '#7a2fa8', f: 262 }, { n: 'Ciruela', c: '#c02a6a', f: 311 }, { n: 'Pimienta negra', c: '#5f6877', f: 370 }, { n: 'Pimentón rojo', c: '#e0402f', f: 415 }, { n: 'Chocolate', c: '#8a4a22', f: 494 }, { n: 'Tabaco', c: '#c9a035', f: 554 }];
+  const ROUNDS = 6;
+  const S = { seq: [], round: 0, mode: 'wait', i: 0, timer: 1, lit: -1, glow: 0, lives: 3, fails: 0, end: false };
+  for (let i = 0; i < 3; i++) S.seq.push(Math.floor(Math.random() * 6));
+  function geo(i) { const top = TOP + 64, cw = (W - 24) / 2, ch = (H - top - 20) / 3; return { x: 12 + cw * (i % 2 + .5), y: top + ch * ((i / 2 | 0) + .44), r: Math.min(cw * .36, ch * .38) }; }
+  function flash(i) { S.lit = i; S.glow = 1; tone(A[i].f, .3, 'triangle', .09); }
+  const myRun = runId;
+  function finish() { if (S.end || myRun !== runId) return; S.end = true; endLevel(clamp(S.round / ROUNDS - S.fails * .06, 0, 1), `Tu vino completó ${S.round * 2} de 12 meses de crianza, con ${S.fails} ${S.fails === 1 ? 'cata fallida' : 'catas falladas'}.`); }
+  return {
+    update(dt) {
+      if (S.end) return;
+      S.glow = Math.max(0, S.glow - dt * 2.4);
+      const step = Math.max(.42, .62 - S.round * .03);
+      if (S.mode === 'wait') { S.timer -= dt; if (S.timer <= 0) { S.mode = 'show'; S.i = 0; S.timer = 0; } }
+      else if (S.mode === 'show') { S.timer -= dt; if (S.timer <= 0) { if (S.i >= S.seq.length) { S.mode = 'input'; S.i = 0; } else { flash(S.seq[S.i]); S.i++; S.timer = step; } } }
+      hud(S.round / ROUNDS, `${S.round * 2} meses`);
+    },
+    draw(t) {
+      cellar(t);
+      ctx.fillStyle = 'rgba(29,13,24,.82)'; rr(12, TOP + 8, W - 24, 44, 10); ctx.fill();
+      txt(S.mode === 'input' ? 'Tu turno: repite la secuencia' : 'Observa la cata', 24, TOP + 22, 14, '#f4eadf', 'left');
+      txt(`Cata ${Math.min(S.round + 1, ROUNDS)} de ${ROUNDS}  ·  Intentos: ${S.lives}`, 24, TOP + 40, 12, '#c3aab6', 'left', 600);
+      A.forEach((a, i) => {
+        const g = geo(i), gl = S.lit === i ? S.glow : 0;
+        barrelHead(g.x, g.y, g.r * (1 + gl * .06), a.c, gl);
+        label(a.n, g.x, g.y + g.r + 14, 12, '#fff', gl > .1 ? a.c : 'rgba(29,13,24,.8)');
+      });
+      if (S.mode === 'input') { const n = S.seq.length, dw = Math.min(16, (W - 60) / n); for (let i = 0; i < n; i++) { ctx.fillStyle = i < S.i ? '#e6b450' : 'rgba(255,255,255,.25)'; ctx.beginPath(); ctx.arc(W / 2 + (i - (n - 1) / 2) * dw, TOP + 60, 3.5, 0, TAU); ctx.fill(); } }
+    },
+    down(x, y) {
+      if (S.mode !== 'input' || S.end) return;
+      for (let i = 0; i < 6; i++) {
+        const g = geo(i);
+        if (Math.hypot(x - g.x, y - g.y) < g.r * 1.15) {
+          flash(i);
+          if (i === S.seq[S.i]) {
+            S.i++;
+            if (S.i >= S.seq.length) {
+              S.round++; sfx.ok(); fx.text(W / 2, H * .5, '+2 meses de barrica', GOOD);
+              if (S.round >= ROUNDS) { S.mode = 'done'; return setTimeout(finish, 500); }
+              S.seq.push(Math.floor(Math.random() * 6)); S.mode = 'wait'; S.timer = 1.1;
+            }
+          } else {
+            S.lives--; S.fails++; sfx.bad(); fx.text(g.x, g.y - g.r, 'Aroma equivocado', BAD);
+            if (S.lives <= 0) { S.mode = 'done'; return setTimeout(finish, 600); }
+            S.mode = 'wait'; S.timer = 1.2; toast('Observa de nuevo');
+          }
+          return;
+        }
+      }
+    }
+  };
+}
+
+/* ============================================================
+   Etapa 8. Embotellado
+   ============================================================ */
+function level8() {
+  const N = 6, LO = .79, HI = .89;
+  const S = { n: 0, phase: 'in', x: -50, level: 0, hold: false, scores: [], timer: 0, end: false, exact: 0 };
+  setControls('<button class="btn primary" id="bFill" type="button">Llenar</button>');
+  holdButton('#bFill', v => { const was = S.hold; S.hold = v; if (!v && was && S.phase === 'fill' && S.level >= .5) judge(); });
+  const geo = () => { const by = H - BOT - 70, h = Math.min(H * .36, 250); return { by, h, cx: W / 2 }; };
+  function judge() {
+    const d = S.level < LO ? LO - S.level : S.level > HI ? S.level - HI : 0; const g = geo();
+    let q, msg, col; if (d === 0) { q = 1; msg = 'Nivel exacto'; col = GOOD; S.exact++; } else if (d <= .05) { q = .6; msg = S.level < LO ? 'Algo corta' : 'Algo pasada'; col = GOLD; } else { q = .2; msg = S.level < LO ? 'Botella incompleta' : 'Demasiado llena'; col = BAD; }
+    S.scores.push(q); q === 1 ? sfx.ok() : sfx.bad(); fx.text(g.cx, g.by - g.h - 40, msg, col); S.phase = 'seal'; S.timer = 0;
+  }
+  return {
+    update(dt) {
+      if (S.end) return; const g = geo();
+      if (S.phase === 'in') { S.x += 300 * dt; if (S.x >= g.cx) { S.x = g.cx; S.phase = 'fill'; } }
+      else if (S.phase === 'fill') {
+        if (S.hold) { S.level += (.36 + .05 * S.n) * dt; if (Math.random() < .3) tone(300 + S.level * 500, .04, 'sine', .02); }
+        if (S.level >= .985) { S.level = 1; S.scores.push(0); sfx.bad(); fx.text(g.cx, g.by - g.h - 40, 'Derrame', BAD); fx.burst(g.cx, g.by - g.h, '#7a1630', 14); S.phase = 'seal'; S.timer = 0; }
+      }
+      else if (S.phase === 'seal') { S.timer += dt; if (S.timer > 1.15) S.phase = 'out'; }
+      else if (S.phase === 'out') {
+        S.x += 320 * dt;
+        if (S.x > W + 60) {
+          S.n++;
+          if (S.n >= N) { S.end = true; const avg = S.scores.reduce((a, b) => a + b, 0) / N; return endLevel(avg, `Llenaste ${S.exact} de ${N} botellas en el nivel exacto.`); }
+          S.x = -50; S.level = 0; S.phase = 'in';
+        }
+      }
+      hud(S.n / N, `${Math.min(S.n + 1, N)}/${N}`);
+    },
+    draw(t) {
+      cellar(t); const g = geo(), run = S.phase === 'in' || S.phase === 'out';
+      // llenadora
+      ctx.fillStyle = '#8d9399'; ctx.fillRect(g.cx - 46, TOP + 6, 92, 26); ctx.fillStyle = '#6d737a'; ctx.fillRect(g.cx - 9, TOP + 32, 18, g.by - g.h - TOP - 46);
+      ctx.fillStyle = '#4a4f55'; ctx.fillRect(g.cx - 5, g.by - g.h - 16, 10, 12);
+      if (S.hold && S.phase === 'fill') { ctx.fillStyle = '#7a1630'; ctx.fillRect(g.cx - 2.5, g.by - g.h - 6, 5, g.h * (1 - S.level) + 6); }
+      // cinta
+      ctx.fillStyle = '#2c2f36'; ctx.fillRect(0, g.by, W, 16); ctx.fillStyle = '#5c6068'; ctx.fillRect(0, g.by + 16, W, 6);
+      ctx.fillStyle = '#8d9399'; const off = run ? (t * 300) % 40 : 0; for (let x = -40 + off; x < W + 40; x += 40) { ctx.beginPath(); ctx.arc(x, g.by + 8, 5, 0, TAU); ctx.fill(); }
+      const sealed = S.phase === 'seal' ? S.timer : S.phase === 'out' ? 2 : 0;
+      bottle(S.x, g.by, g.h, S.level, { marks: S.phase === 'fill' || S.phase === 'in' ? [LO, HI] : null, cork: clamp(sealed / .35, 0, 1), label: clamp((sealed - .45) / .4, 0, 1) });
+      // botellas terminadas
+      for (let i = 0; i < N; i++) { const bx = W / 2 + (i - (N - 1) / 2) * 30, by = H - BOT - 8; ctx.globalAlpha = i < S.scores.length && !(i === S.n && S.phase !== 'out') ? 1 : .22; bottle(bx, by, 44, i < S.scores.length ? .84 : 0, { cork: 1, label: 1 }); }
+      ctx.globalAlpha = 1;
+    }
+  };
+}
+
+const MAKERS = [level1, level2, level3, level4, level5, level6, level7, level8];
+
+/* ============================================================
+   Flujo de pantallas
+   ============================================================ */
+const starsHtml = (n, big) => `<span class="stars${big ? ' big' : ''}" role="img" aria-label="${n} de 3 estrellas">${[0, 1, 2].map(i => `<i class="${i < n ? 'on' : ''}"></i>`).join('')}</span>`;
+function show(html, cls = '') { elScreen.className = cls; elScreen.innerHTML = html; elScreen.hidden = false; elScreen.scrollTop = 0; const f = elScreen.querySelector('[data-focus]'); if (f) f.focus({ preventScroll: true }); }
+function stopLevel() { runId++; cur = null; paused = false; elHud.hidden = true; setControls(''); fx.p = []; elToast.classList.remove('on'); }
+
+function showTitle() {
+  stopLevel(); ambientMood = 'sunset'; finalView = false;
+  const started = totalStars() > 0;
+  show(`
+    <div class="hero">
+      <p class="eyebrow">Chile, 1994</p>
+      <h1><span class="strike">Merlot</span><span>Chileno</span></h1>
+      <div class="hand">en realidad, Carménère</div>
+      <p>Durante décadas se cultivó como Merlot una cepa que se creía perdida. Descúbrela en tu viñedo, cultívala y llévala hasta la botella.</p>
+      <div class="row">
+        <button class="btn primary" data-act="map" data-focus type="button">${started ? 'Continuar' : 'Jugar'}</button>
+        <button class="btn" data-act="log" type="button">Bitácora</button>
+      </div>
+      <button class="btn small ghost" data-act="sound" type="button">Sonido: ${save.sound ? 'activado' : 'desactivado'}</button>
+    </div>`);
+}
+function showMap() {
+  stopLevel(); ambientMood = 'day'; finalView = false;
+  const un = unlocked(); let last = '', list = '';
+  LEVELS.forEach((L, i) => {
+    if (L.phase !== last) { list += `<li class="phase">${L.phase}</li>`; last = L.phase; }
+    const lock = i > un;
+    list += `<li><button class="stop${i === un && !save.stars[i] ? ' next' : ''}" data-act="intro:${i}" type="button" ${lock ? 'disabled' : ''}>
+      <span class="num">${i + 1}</span><span><span class="t">${L.title}</span><span class="s">${lock ? 'Completa la etapa anterior' : L.tag}</span></span>${starsHtml(save.stars[i])}</button></li>`;
+  });
+  const done = save.stars.every(s => s > 0);
+  show(`
+    <div class="panel">
+      <div class="topbar"><div><p class="eyebrow">Ruta de producción</p><h2>De la parra a la botella</h2></div>
+      <button class="btn small" data-act="title" type="button">Inicio</button></div>
+      <p class="muted small">${totalStars()} de ${N_LEVELS * 3} estrellas. Necesitas al menos una estrella para abrir la etapa siguiente.</p>
+      <ul class="route">${list}</ul>
+      ${done ? '<button class="btn primary" data-act="final" type="button">Ver mi vino</button>' : ''}
+    </div>`, 'full');
+}
+function showIntro(i) {
+  stopLevel(); const L = LEVELS[i];
+  const extra = i === 7 ? `
+    <label class="field" for="inName">Nombre de tu viña
+      <input id="inName" maxlength="22" autocomplete="off" placeholder="Viña del Carmín" value="${esc(save.name)}"></label>
+    <label class="field" for="inValley">Valle de origen
+      <select id="inValley">${['Maipo', 'Cachapoal', 'Colchagua', 'Curicó', 'Maule'].map(v => `<option${v === save.valley ? ' selected' : ''}>${v}</option>`).join('')}</select></label>` : '';
+  show(`
+    <div class="panel">
+      <p class="eyebrow">Etapa ${i + 1} de ${N_LEVELS} · ${L.tag}</p>
+      <h2>${L.title}</h2>
+      <p>${L.story}</p>
+      <p class="how"><b>Cómo se juega</b>${L.how}</p>
+      ${extra}
+      <div class="row">
+        <button class="btn primary" data-act="start:${i}" data-focus type="button">Comenzar</button>
+        <button class="btn" data-act="map" type="button">Volver a la ruta</button>
+      </div>
+    </div>`);
+}
+function startLevel(i) {
+  if (i === 7) { const n = $('#inName'), v = $('#inValley'); if (n) save.name = n.value.trim().slice(0, 22); if (v) save.valley = v.value; persist(); }
+  stopLevel(); elScreen.hidden = true; elHud.hidden = false; elHudTitle.textContent = `${i + 1}. ${LEVELS[i].title}`;
+  hud(1, ''); const sc = MAKERS[i](); cur = { i, scene: sc };
+}
+function endLevel(ratio, detail) {
+  if (!cur) return; const i = cur.i;
+  const stars = ratio >= .85 ? 3 : ratio >= .6 ? 2 : ratio >= .35 ? 1 : 0, pts = Math.round(ratio * 1000);
+  const record = pts > save.best[i] && save.best[i] > 0;
+  save.stars[i] = Math.max(save.stars[i], stars); save.best[i] = Math.max(save.best[i], pts); persist();
+  const L = LEVELS[i]; stopLevel(); ambientMood = i < 4 ? 'day' : 'sunset';
+  if (stars) sfx.win(); else sfx.bad();
+  const last = i === N_LEVELS - 1;
+  show(`
+    <div class="panel">
+      <p class="eyebrow">Etapa ${i + 1} · ${L.title}</p>
+      ${starsHtml(stars, true)}
+      <h2 style="text-align:center">${['Hay que repetir', 'Etapa superada', 'Buen trabajo', 'Excelente'][stars]}</h2>
+      <p>${detail}</p>
+      <div class="score-line"><span class="muted">Puntaje${record ? ' (nuevo récord)' : ''}</span><strong>${pts}</strong></div>
+      ${stars ? `<p class="fact"><b>Bitácora</b>${L.fact}</p>` : '<p class="muted small">Necesitas al menos una estrella para avanzar a la etapa siguiente.</p>'}
+      <div class="row">
+        ${stars ? `<button class="btn primary" data-act="${last ? 'final' : 'intro:' + (i + 1)}" data-focus type="button">${last ? 'Ver mi vino' : 'Etapa siguiente'}</button>` : ''}
+        <button class="btn${stars ? '' : ' primary'}" data-act="start:${i}" type="button">Repetir</button>
+        <button class="btn" data-act="map" type="button">Ruta</button>
+      </div>
+    </div>`, 'center');
+}
+function showLog() {
+  stopLevel();
+  const items = LEVELS.map((L, i) => save.stars[i] > 0
+    ? `<p class="fact"><b>${i + 1}. ${L.title}</b>${L.fact}</p>`
+    : `<p class="fact locked"><b>${i + 1}. ${L.title}</b>Supera esta etapa para registrar el dato.</p>`).join('');
+  show(`
+    <div class="panel">
+      <div class="topbar"><div><p class="eyebrow">Bitácora del productor</p><h2>La historia de una cepa perdida</h2></div>
+      <button class="btn small" data-act="title" type="button">Inicio</button></div>
+      <div class="log">${items}</div>
+    </div>`, 'full');
+}
+function wineClass() { const s = totalStars(); return s >= 22 ? 'Ícono' : s >= 18 ? 'Gran Reserva' : s >= 13 ? 'Reserva' : 'Varietal'; }
+function showFinal() {
+  stopLevel(); ambientMood = 'sunset'; finalView = true; sfx.win();
+  const s = totalStars();
+  show(`
+    <div class="panel">
+      <p class="eyebrow">Tu vino está listo</p>
+      <h2>${esc(save.name || 'Viña del Carmín')}, Carménère ${wineClass()}</h2>
+      <p>Reuniste ${s} de ${N_LEVELS * 3} estrellas en la ruta de producción. Lo que por décadas se vendió como Merlot hoy lleva en la etiqueta su nombre verdadero.</p>
+      <p class="muted small">${s >= 22 ? 'Alcanzaste la categoría más alta.' : 'Repite las etapas con menos estrellas para subir la categoría de tu vino: Varietal, Reserva, Gran Reserva e Ícono.'}</p>
+      <div class="row">
+        <button class="btn primary" data-act="map" data-focus type="button">Volver a la ruta</button>
+        <button class="btn" data-act="log" type="button">Bitácora</button>
+      </div>
+    </div>`);
+}
+function showPause() {
+  if (!cur || paused) return; paused = true;
+  show(`
+    <div class="panel">
+      <p class="eyebrow">Pausa</p>
+      <h2>${LEVELS[cur.i].title}</h2>
+      <p class="how"><b>Cómo se juega</b>${LEVELS[cur.i].how}</p>
+      <div class="row">
+        <button class="btn primary" data-act="resume" data-focus type="button">Continuar</button>
+        <button class="btn" data-act="start:${cur.i}" type="button">Reiniciar</button>
+        <button class="btn" data-act="map" type="button">Salir a la ruta</button>
+      </div>
+      <button class="btn small ghost" data-act="sound" type="button">Sonido: ${save.sound ? 'activado' : 'desactivado'}</button>
+    </div>`, 'center');
+}
+
+elScreen.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const [act, arg] = b.dataset.act.split(':'); sfx.tap();
+  if (act === 'map') showMap();
+  else if (act === 'title') showTitle();
+  else if (act === 'log') showLog();
+  else if (act === 'final') showFinal();
+  else if (act === 'intro') showIntro(+arg);
+  else if (act === 'start') startLevel(+arg);
+  else if (act === 'resume') { paused = false; elScreen.hidden = true; }
+  else if (act === 'sound') { save.sound = !save.sound; persist(); b.textContent = `Sonido: ${save.sound ? 'activado' : 'desactivado'}`; sfx.tap(); }
+});
+$('#btnPause').addEventListener('click', showPause);
+document.addEventListener('visibilitychange', () => { if (document.hidden) showPause(); });
+
+/* ============================================================
+   Entrada táctil y bucle principal
+   ============================================================ */
+function pos(e) { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * W / r.width, (e.clientY - r.top) * H / r.height]; }
+let pressed = false;
+cv.addEventListener('pointerdown', e => { e.preventDefault(); pressed = true; if (cur && !paused && cur.scene && cur.scene.down) { const [x, y] = pos(e); cur.scene.down(x, y); } });
+cv.addEventListener('pointermove', e => { if (pressed && cur && !paused && cur.scene && cur.scene.move) { const [x, y] = pos(e); cur.scene.move(x, y); } });
+['pointerup', 'pointercancel', 'pointerleave'].forEach(n => cv.addEventListener(n, () => { pressed = false; }));
+
+function resize() {
+  const r = app.getBoundingClientRect(); W = Math.max(280, r.width); H = Math.max(420, r.height);
+  DPR = Math.min(window.devicePixelRatio || 1, 2.5); cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+}
+window.addEventListener('resize', resize);
+
+function drawFinal(t) {
+  backdrop(t, 'sunset', .46);
+  // la botella se encuadra en el espacio libre sobre el panel, con la etiqueta a la vista
+  const pn = elScreen.querySelector('.panel'), ar = app.getBoundingClientRect();
+  const vis = clamp(pn ? pn.getBoundingClientRect().top - ar.top : H * .5, 180, H * .7);
+  const h = vis * 1.2, x = W / 2, yb = vis - 12 + h * .2;
+  bottle(x, yb, h, .86, { cork: 1, label: 1, text: [save.name || 'Viña del Carmín', 'D.O. Valle de ' + save.valley, wineClass() + ' · ' + new Date().getFullYear()] });
+  for (let i = 0; i < 3; i++) { const a = t * .8 + i * 2.1; ctx.fillStyle = `rgba(255,220,150,${.35 + .3 * Math.sin(a * 2)})`; ctx.beginPath(); ctx.arc(x + Math.cos(a) * h * .26, yb - h * (.55 + .3 * Math.sin(a * 1.3)), 2.5, 0, TAU); ctx.fill(); }
+}
+
+let lastTs = 0;
+function frame(ts) {
+  const dt = Math.min(.05, (ts - lastTs) / 1000 || 0); lastTs = ts;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  if (cur && cur.scene) {
+    if (!paused) { clock += dt; cur.scene.update(dt); fx.update(dt); }
+    if (cur && cur.scene) { cur.scene.draw(clock); fx.draw(); }
+  }
+  if (!cur) { clock += dt; if (finalView) drawFinal(clock); else backdrop(clock, ambientMood, .5); }
+  requestAnimationFrame(frame);
+}
+
+function start(data) {
+  loadSave(data); resize(); showTitle(); requestAnimationFrame(frame);
+}
+const hot = window.claude && window.claude.hot;
+if (hot && hot.snapshot) { try { hot.snapshot(() => ({ save })); } catch (e) { /* sin actualización en caliente */ } }
+if (hot && hot.ready) hot.ready(start); else start((hot && hot.data) || {});
+})();
+</script>
+</body>
+</html>
